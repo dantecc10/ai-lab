@@ -20,7 +20,7 @@ Sistema completo de IA local con GPU NVIDIA, modelos Gemma 4, asistente de voz, 
 ┌─────────────────────────────────────────────────────────────┐
 │  Puerto 9090 — Modelo Principal (12B, GPU, NGL=30)         │
 │  Web UI: http://localhost:9090                              │
-│  CTX=32768, 128 tools MCP                                  │
+│  CTX=32768, 133 tools MCP                                  │
 │  • Razonamiento complejo                                    │
 │  • Delega tools simples → Sub-agente                        │
 └─────────────────────────────────────────────────────────────┘
@@ -225,16 +225,22 @@ Ubicación: `~/llama.cpp/ai-models/`
 - `ssh_add_host` — Agregar host a SSH config
 - `ssh_status` — Verificar estado de servidor remoto
 
-### Comunicación (3)
+### Comunicación (4)
+- `send_notification` — Notificación de escritorio (opciones avanzadas)
+- `notify_contextual` — Notificación contextual (la IA decide cuándo notificar)
 - `format_whatsapp` — Formatear texto para WhatsApp (negritas, listas anidadas, emojis)
 - `whatsapp_link` — Generar enlace wa.me con mensaje prellenado
 - `format_email` — Componer cuerpo de email (plain/html/both)
 
-### Web & Internet (7)
+### Web & Internet (12)
 - `browse_web` — Obtener contenido de URL (text/html/json)
 - `http_request` — Cliente HTTP (GET/POST/PUT/DELETE)
+- `search_google` — Búsqueda en Google con AI Mode
 - `search_news` — Buscar noticias (DuckDuckGo)
 - `search_docs` — Buscar documentación técnica
+- `search_sports` — Resultados deportivos en vivo
+- `fetch_article` — Obtener artículo completo (BeautifulSoup)
+- `search_with_content` — Buscar + obtener contenido del primer resultado
 - `dns_lookup` — Consultas DNS (A/MX/TXT/NS/CNAME)
 - `ssl_check` — Verificar certificado SSL
 - `whois_lookup` — Consulta WHOIS de dominio
