@@ -5,8 +5,9 @@ Repositorio de configuración, scripts y documentación para un sistema completo
 - llama.cpp (inferencia local)
 - Gemma 4 (modelos de lenguaje)
 - Voice Assistant (Whisper + Piper TTS)
-- MCP Tools (39 herramientas)
+- MCP Tools (94 herramientas)
 - Open WebUI (interfaz web)
+- ChatShare (compartir chats)
 
 ## Hardware
 
@@ -25,7 +26,7 @@ Repositorio de configuración, scripts y documentación para un sistema completo
 ┌─────────────────────────────────────────────────────────────┐
 │  Puerto 9090 — Modelo Principal (12B, GPU, NGL=30)         │
 │  Web UI: http://localhost:9090                              │
-│  CTX=32768, 39 tools MCP                                   │
+│  CTX=32768, 94 tools MCP                                   │
 │  • Razonamiento complejo                                    │
 │  • Delega tools simples → Sub-agente                        │
 └─────────────────────────────────────────────────────────────┘
@@ -51,6 +52,16 @@ Repositorio de configuración, scripts y documentación para un sistema completo
 │  Puerto 9093 — Whisper STT                                 │
 │  http://localhost:9093                                      │
 │  Speech-to-Text (Voice Input)                               │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Puerto 8000 — ChatShare Local                             │
+│  http://localhost:8000                                      │
+│  • Gestión de chats (SQLite + Alembic)                      │
+│  • Tokens de acceso con expiración                          │
+│  • Sync automático con VPS                                  │
+│  • MCP tools para la IA                                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -131,8 +142,9 @@ systemctl --user start whisper-server.service
 | Sub-agente E4B | 9091 | Gemma 4 E4B (CPU) |
 | Open WebUI | 9092 | Interface web |
 | Whisper STT | 9093 | Speech-to-Text |
+| ChatShare | 8000 | Compartir chats |
 
-## Tools MCP (39 total)
+## Tools MCP (94 total)
 
 ### Smart Home
 - `kasa_set_plug_state` — Encender/apagar enchufes
@@ -187,6 +199,17 @@ systemctl --user start whisper-server.service
 ### Delegación
 - `delegate_to_subagent` — Delegar al sub-agente
 
+### ChatShare
+- `chat_create` — Crear nuevo chat
+- `chat_list` — Listar chats
+- `chat_get` — Obtener chat con mensajes
+- `chat_edit` — Editar chat (crea versión)
+- `chat_delete` — Soft delete
+- `chat_versions` — Ver historial de versiones
+- `chat_branch` — Crear rama
+- `chat_share` — Compartir chat (genera token)
+- `token_revoke` — Revocar token de acceso
+
 ## Problemas y Soluciones
 
 ### GPU en D3cold
@@ -210,11 +233,17 @@ systemctl --user start whisper-server.service
 
 ## Changelog
 
+### v1.1.0 (2026-08-30)
+- ChatShare: sistema de compartir chats con tokens
+- Local-first: SQLite + Alembic para gestión de chats
+- Workers automáticos (expiración de tokens, sync con VPS)
+- 9 herramientas MCP adicionales (total: 94)
+
 ### v1.0.0 (2026-08-29)
 - Sistema base con GPU NVIDIA RTX 5060
 - llama.cpp v0.3.0-dev
 - Gemma 4 12B (principal) + E4B (sub-agente)
-- 39 tools MCP
+- 85 tools MCP
 - Sistema de memoria persistente (SQLite)
 - Voice input con Whisper
 - Open WebUI en puerto 9092
