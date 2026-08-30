@@ -2106,6 +2106,440 @@ TOOLS = [
             },
             "required": ["body"]
         }
+    },
+    # ── Web & Internet Tools ────────────────────────────────
+    {
+        "name": "browse_web",
+        "description": "Obtiene contenido de una URL. Retorna texto, HTML, o JSON.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL a obtener."
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["text", "html", "json"],
+                    "description": "Formato de salida.",
+                    "default": "text"
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout en segundos.",
+                    "default": 30
+                }
+            },
+            "required": ["url"]
+        }
+    },
+    {
+        "name": "http_request",
+        "description": "Realiza petición HTTP (GET, POST, PUT, DELETE, PATCH).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL del endpoint."
+                },
+                "method": {
+                    "type": "string",
+                    "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+                    "description": "Método HTTP.",
+                    "default": "GET"
+                },
+                "headers": {
+                    "type": "object",
+                    "description": "Headers HTTP."
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Body de la petición (JSON o texto)."
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout en segundos.",
+                    "default": 30
+                }
+            },
+            "required": ["url"]
+        }
+    },
+    {
+        "name": "search_news",
+        "description": "Busca noticias recientes en DuckDuckGo.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Término de búsqueda."
+                },
+                "region": {
+                    "type": "string",
+                    "description": "Región (ej: mx-mx, us-en).",
+                    "default": "wt-wt"
+                },
+                "time": {
+                    "type": "string",
+                    "enum": ["d", "w", "m", "y"],
+                    "description": "Período: día, semana, mes, año.",
+                    "default": "w"
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Máximo de resultados.",
+                    "default": 10
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "search_docs",
+        "description": "Busca documentación técnica (Stack Overflow, GitHub, MDN, etc.).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Término de búsqueda."
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Lenguaje de programación (ej: python, javascript)."
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Máximo de resultados.",
+                    "default": 5
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "dns_lookup",
+        "description": "Consulta DNS (A, AAAA, MX, TXT, NS, CNAME).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "description": "Dominio a consultar."
+                },
+                "record_type": {
+                    "type": "string",
+                    "enum": ["A", "AAAA", "MX", "TXT", "NS", "CNAME", "SOA", "ALL"],
+                    "description": "Tipo de registro.",
+                    "default": "ALL"
+                }
+            },
+            "required": ["domain"]
+        }
+    },
+    {
+        "name": "ssl_check",
+        "description": "Verifica certificado SSL de un dominio.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "description": "Dominio a verificar."
+                }
+            },
+            "required": ["domain"]
+        }
+    },
+    {
+        "name": "whois_lookup",
+        "description": "Consulta WHOIS de un dominio.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "description": "Dominio a consultar."
+                }
+            },
+            "required": ["domain"]
+        }
+    },
+    # ── Database Tools ──────────────────────────────────────
+    {
+        "name": "sql_query",
+        "description": "Ejecuta query SQL en una base de datos SQLite.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "database": {
+                    "type": "string",
+                    "description": "Ruta de la DB SQLite (default: ai-memory.db)."
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Query SQL a ejecutar."
+                },
+                "params": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Parámetros de la query."
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "backup_database",
+        "description": "Crea backup de una base de datos SQLite.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "database": {
+                    "type": "string",
+                    "description": "Ruta de la DB a respaldar."
+                },
+                "backup_path": {
+                    "type": "string",
+                    "description": "Ruta del backup (default: auto-generada)."
+                }
+            },
+            "required": ["database"]
+        }
+    },
+    # ── Data Processing Tools ───────────────────────────────
+    {
+        "name": "csv_to_json",
+        "description": "Convierte CSV a JSON.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "input_file": {
+                    "type": "string",
+                    "description": "Ruta del archivo CSV."
+                },
+                "output_file": {
+                    "type": "string",
+                    "description": "Ruta de salida JSON (opcional)."
+                }
+            },
+            "required": ["input_file"]
+        }
+    },
+    {
+        "name": "json_to_csv",
+        "description": "Convierte JSON a CSV.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "input_file": {
+                    "type": "string",
+                    "description": "Ruta del archivo JSON."
+                },
+                "output_file": {
+                    "type": "string",
+                    "description": "Ruta de salida CSV (opcional)."
+                }
+            },
+            "required": ["input_file"]
+        }
+    },
+    {
+        "name": "convert_file",
+        "description": "Convierte entre formatos: CSV, JSON, XML, YAML, Markdown.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "input_file": {
+                    "type": "string",
+                    "description": "Ruta del archivo de entrada."
+                },
+                "output_format": {
+                    "type": "string",
+                    "enum": ["csv", "json", "xml", "yaml", "md", "txt"],
+                    "description": "Formato de salida."
+                },
+                "output_file": {
+                    "type": "string",
+                    "description": "Ruta de salida (opcional)."
+                }
+            },
+            "required": ["input_file", "output_format"]
+        }
+    },
+    {
+        "name": "extract_pdf",
+        "description": "Extrae texto de un archivo PDF.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pdf_path": {
+                    "type": "string",
+                    "description": "Ruta del PDF."
+                },
+                "pages": {
+                    "type": "string",
+                    "description": "Páginas a extraer (ej: '1-5', '1,3,5', 'all').",
+                    "default": "all"
+                }
+            },
+            "required": ["pdf_path"]
+        }
+    },
+    {
+        "name": "generate_csv",
+        "description": "Genera archivo CSV desde datos estructurados.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "string",
+                    "description": "Datos en formato JSON (array de objetos)."
+                },
+                "output_file": {
+                    "type": "string",
+                    "description": "Ruta de salida."
+                },
+                "delimiter": {
+                    "type": "string",
+                    "description": "Delimitador.",
+                    "default": ","
+                }
+            },
+            "required": ["data", "output_file"]
+        }
+    },
+    {
+        "name": "data_analysis",
+        "description": "Análisis básico de datos: estadísticas, valores únicos, nulos.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Ruta del archivo (CSV o JSON)."
+                },
+                "column": {
+                    "type": "string",
+                    "description": "Columna específica a analizar."
+                }
+            },
+            "required": ["file_path"]
+        }
+    },
+    # ── Log & System Tools ──────────────────────────────────
+    {
+        "name": "log_analysis",
+        "description": "Analiza logs del sistema: errores, warnings, patrones.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "log_file": {
+                    "type": "string",
+                    "description": "Ruta del archivo de log."
+                },
+                "lines": {
+                    "type": "integer",
+                    "description": "Últimas N líneas a analizar.",
+                    "default": 100
+                },
+                "filter": {
+                    "type": "string",
+                    "description": "Filtrar por nivel (ERROR, WARN, INFO)."
+                }
+            },
+            "required": ["log_file"]
+        }
+    },
+    {
+        "name": "generate_report",
+        "description": "Genera reporte en Markdown con datos y análisis.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Título del reporte."
+                },
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "heading": {"type": "string"},
+                            "content": {"type": "string"},
+                            "data": {"type": "array"}
+                        }
+                    },
+                    "description": "Secciones del reporte."
+                },
+                "output_file": {
+                    "type": "string",
+                    "description": "Ruta de salida (opcional)."
+                }
+            },
+            "required": ["title", "sections"]
+        }
+    },
+    # ── Security Tools ──────────────────────────────────────
+    {
+        "name": "security_audit",
+        "description": "Auditoría básica de seguridad: permisos, puertos abiertos, usuarios.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "enum": ["full", "ports", "files", "users"],
+                    "description": "Alcance de la auditoría.",
+                    "default": "full"
+                }
+            }
+        }
+    },
+    {
+        "name": "secret_detection",
+        "description": "Detecta posibles secretos/claves en archivos de código.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Directorio a escanear."
+                },
+                "extensions": {
+                    "type": "string",
+                    "description": "Extensiones a escanear (ej: '.py,.js,.env').",
+                    "default": ".py,.js,.ts,.env,.json,.yaml,.yml,.cfg,.conf"
+                }
+            }
+        }
+    },
+    # ── Task & Planning Tools ───────────────────────────────
+    {
+        "name": "plan_tasks",
+        "description": "Genera plan de tareas para un objetivo.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "objective": {
+                    "type": "string",
+                    "description": "Objetivo a planificar."
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Contexto adicional."
+                },
+                "max_tasks": {
+                    "type": "integer",
+                    "description": "Máximo de tareas.",
+                    "default": 10
+                }
+            },
+            "required": ["objective"]
+        }
     }
 ]
 
@@ -5611,7 +6045,809 @@ def tool_ssh_status(host: str) -> str:
         return f"Error: {e}"
 
 
-# ── MCP JSON-RPC Handler ─────────────────────────────────
+# ── Web & Internet Implementations ─────────────────────────
+def tool_browse_web(url: str, format: str = "text", timeout: int = 30) -> str:
+    """Fetch URL content."""
+    try:
+        import httpx
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+        }
+        
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            response = client.get(url, headers=headers)
+            response.raise_for_status()
+        
+        if format == "json":
+            try:
+                data = response.json()
+                return json.dumps(data, indent=2, ensure_ascii=False)
+            except:
+                return f"No es JSON válido:\n{response.text[:2000]}"
+        
+        elif format == "html":
+            return response.text[:5000]
+        
+        else:  # text
+            # Simple HTML to text
+            import re
+            text = response.text
+            # Remove scripts and styles
+            text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
+            text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+            # Remove HTML tags
+            text = re.sub(r'<[^>]+>', ' ', text)
+            # Clean whitespace
+            text = re.sub(r'\s+', ' ', text).strip()
+            return text[:3000]
+    
+    except Exception as e:
+        return f"Error obteniendo URL: {e}"
+
+
+def tool_http_request(url: str, method: str = "GET", headers: dict = None, body: str = None, timeout: int = 30) -> str:
+    """Make HTTP request."""
+    try:
+        import httpx
+        
+        req_headers = headers or {}
+        
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            if method == "GET":
+                response = client.get(url, headers=req_headers)
+            elif method == "POST":
+                response = client.post(url, headers=req_headers, content=body)
+            elif method == "PUT":
+                response = client.put(url, headers=req_headers, content=body)
+            elif method == "DELETE":
+                response = client.delete(url, headers=req_headers)
+            elif method == "PATCH":
+                response = client.patch(url, headers=req_headers, content=body)
+            else:
+                return f"Método no soportado: {method}"
+            
+            result = {
+                "status": response.status_code,
+                "headers": dict(response.headers),
+                "body": response.text[:5000]
+            }
+            
+            log_operation("http_request", {"url": url, "method": method}, f"status:{response.status_code}")
+            return json.dumps(result, indent=2, ensure_ascii=False)
+    
+    except Exception as e:
+        return f"Error HTTP: {e}"
+
+
+def tool_search_news(query: str, region: str = "wt-wt", time: str = "w", max_results: int = 10) -> str:
+    """Search news via DuckDuckGo."""
+    try:
+        from duckduckgo_search import DDGS
+        
+        with DDGS() as ddgs:
+            results = list(ddgs.news(query, region=region, timelimit=time, max_results=max_results))
+        
+        if not results:
+            return "No se encontraron noticias."
+        
+        output = f"Noticias para '{query}':\n\n"
+        for i, r in enumerate(results, 1):
+            output += f"{i}. **{r.get('title', 'N/A')}**\n"
+            output += f"   Fuente: {r.get('source', 'N/A')}\n"
+            output += f"   Fecha: {r.get('date', 'N/A')}\n"
+            output += f"   URL: {r.get('url', 'N/A')}\n\n"
+        
+        return output
+    
+    except Exception as e:
+        return f"Error buscando noticias: {e}"
+
+
+def tool_search_docs(query: str, language: str = None, max_results: int = 5) -> str:
+    """Search technical documentation."""
+    try:
+        from duckduckgo_search import DDGS
+        
+        search_query = query
+        if language:
+            search_query = f"{language} {query} documentation"
+        
+        with DDGS() as ddgs:
+            results = list(ddgs.text(search_query, max_results=max_results))
+        
+        if not results:
+            return "No se encontró documentación."
+        
+        output = f"Documentación para '{query}':\n\n"
+        for i, r in enumerate(results, 1):
+            output += f"{i}. **{r.get('title', 'N/A')}**\n"
+            output += f"   {r.get('body', 'N/A')[:200]}\n"
+            output += f"   URL: {r.get('href', 'N/A')}\n\n"
+        
+        return output
+    
+    except Exception as e:
+        return f"Error buscando docs: {e}"
+
+
+def tool_dns_lookup(domain: str, record_type: str = "ALL") -> str:
+    """DNS lookup."""
+    try:
+        import dns.resolver
+        
+        record_types = ["A", "AAAA", "MX", "TXT", "NS", "CNAME", "SOA"]
+        if record_type != "ALL":
+            record_types = [record_type]
+        
+        output = f"DNS para {domain}:\n\n"
+        
+        for rtype in record_types:
+            try:
+                answers = dns.resolver.resolve(domain, rtype)
+                output += f"📋 {rtype}:\n"
+                for rdata in answers:
+                    output += f"  • {rdata}\n"
+                output += "\n"
+            except dns.resolver.NoAnswer:
+                pass
+            except dns.resolver.NXDOMAIN:
+                return f"Error: Dominio {domain} no existe"
+            except Exception:
+                pass
+        
+        return output if output.strip() != f"DNS para {domain}:" else "No se encontraron registros"
+    
+    except ImportError:
+        return "Error: dnspython no instalado"
+    except Exception as e:
+        return f"Error DNS: {e}"
+
+
+def tool_ssl_check(domain: str) -> str:
+    """Check SSL certificate."""
+    try:
+        import ssl
+        import socket
+        from datetime import datetime
+        
+        context = ssl.create_default_context()
+        
+        with socket.create_connection((domain, 443), timeout=10) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+        
+        # Parse dates
+        not_before = datetime.strptime(cert['notBefore'], '%b %d %H:%M:%S %Y %Z')
+        not_after = datetime.strptime(cert['notAfter'], '%b %d %H:%M:%S %Y %Z')
+        days_left = (not_after - datetime.now()).days
+        
+        output = f"🔒 SSL para {domain}:\n\n"
+        output += f"  Emisor: {dict(x[0] for x in cert['issuer']).get('commonName', 'N/A')}\n"
+        output += f"  Válido desde: {not_before.strftime('%Y-%m-%d')}\n"
+        output += f"  Válido hasta: {not_after.strftime('%Y-%m-%d')}\n"
+        output += f"  Días restantes: {days_left}\n"
+        output += f"  Dominios: {', '.join(cert.get('subjectAltName', [('*', )])[0][1] if cert.get('subjectAltName') else [domain])}\n"
+        
+        if days_left < 30:
+            output += f"\n⚠️ ¡Certificado expira en {days_left} días!"
+        else:
+            output += f"\n✅ Certificado válido"
+        
+        return output
+    
+    except Exception as e:
+        return f"Error verificando SSL: {e}"
+
+
+def tool_whois_lookup(domain: str) -> str:
+    """WHOIS lookup."""
+    try:
+        import whois
+        
+        w = whois.whois(domain)
+        
+        output = f"📋 WHOIS para {domain}:\n\n"
+        
+        if w.domain_name:
+            output += f"  Dominio: {w.domain_name}\n"
+        if w.registrar:
+            output += f"  Registrar: {w.registrar}\n"
+        if w.creation_date:
+            output += f"  Creado: {w.creation_date}\n"
+        if w.expiration_date:
+            output += f"  Expira: {w.expiration_date}\n"
+        if w.name_servers:
+            output += f"  Name Servers: {', '.join(w.name_servers[:3])}\n"
+        if w.org:
+            output += f"  Organización: {w.org}\n"
+        if w.country:
+            output += f"  País: {w.country}\n"
+        
+        return output
+    
+    except ImportError:
+        return "Error: python-whois no instalado"
+    except Exception as e:
+        return f"Error WHOIS: {e}"
+
+
+# ── Database Implementations ────────────────────────────────
+def tool_sql_query(query: str, database: str = None, params: list = None) -> str:
+    """Execute SQL query on SQLite database."""
+    try:
+        import sqlite3
+        
+        if not database:
+            database = os.path.join(HOME, ".config/ai-memory.db")
+        else:
+            database = os.path.expanduser(database)
+        
+        if not os.path.exists(database):
+            return f"Error: Base de datos no existe: {database}"
+        
+        conn = sqlite3.connect(database)
+        cursor = conn.cursor()
+        
+        # Check if it's a SELECT query
+        is_select = query.strip().upper().startswith("SELECT")
+        
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
+        
+        if is_select:
+            columns = [desc[0] for desc in cursor.description] if cursor.description else []
+            rows = cursor.fetchall()
+            
+            if not rows:
+                return "Query ejecutada. Sin resultados."
+            
+            output = f"Resultados ({len(rows)} filas):\n\n"
+            
+            # Header
+            output += " | ".join(columns) + "\n"
+            output += "-" * 50 + "\n"
+            
+            # Rows
+            for row in rows[:100]:  # Limit to 100 rows
+                output += " | ".join(str(v) if v is not None else "NULL" for v in row) + "\n"
+            
+            if len(rows) > 100:
+                output += f"\n... y {len(rows) - 100} filas más"
+            
+            return output
+        else:
+            conn.commit()
+            affected = cursor.rowcount
+            log_operation("sql_query", {"query": query[:100]}, f"affected:{affected}")
+            return f"Query ejecutada. Filas afectadas: {affected}"
+        
+        conn.close()
+    
+    except Exception as e:
+        return f"Error SQL: {e}"
+
+
+def tool_backup_database(database: str, backup_path: str = None) -> str:
+    """Backup SQLite database."""
+    try:
+        import sqlite3
+        import shutil
+        
+        database = os.path.expanduser(database)
+        
+        if not os.path.exists(database):
+            return f"Error: Base de datos no existe: {database}"
+        
+        if not backup_path:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            db_name = os.path.basename(database).replace(".db", "")
+            backup_dir = os.path.join(HOME, ".local/backups")
+            os.makedirs(backup_dir, exist_ok=True)
+            backup_path = os.path.join(backup_dir, f"{db_name}_{timestamp}.db")
+        else:
+            backup_path = os.path.expanduser(backup_path)
+        
+        # Use SQLite backup API
+        source = sqlite3.connect(database)
+        dest = sqlite3.connect(backup_path)
+        source.backup(dest)
+        source.close()
+        dest.close()
+        
+        size = os.path.getsize(backup_path)
+        log_operation("backup_database", {"database": database}, f"backup:{backup_path}")
+        return f"Backup creado: {backup_path} ({size} bytes)"
+    
+    except Exception as e:
+        return f"Error creando backup: {e}"
+
+
+# ── Data Processing Implementations ─────────────────────────
+def tool_csv_to_json(input_file: str, output_file: str = None) -> str:
+    """Convert CSV to JSON."""
+    try:
+        import csv
+        
+        input_file = os.path.expanduser(input_file)
+        
+        with open(input_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            data = list(reader)
+        
+        if not output_file:
+            output_file = input_file.rsplit('.', 1)[0] + '.json'
+        else:
+            output_file = os.path.expanduser(output_file)
+        
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        log_operation("csv_to_json", {"input": input_file}, f"output:{output_file}")
+        return f"Convertido: {output_file} ({len(data)} registros)"
+    
+    except Exception as e:
+        return f"Error convirtiendo: {e}"
+
+
+def tool_json_to_csv(input_file: str, output_file: str = None) -> str:
+    """Convert JSON to CSV."""
+    try:
+        import csv
+        
+        input_file = os.path.expanduser(input_file)
+        
+        with open(input_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        if not isinstance(data, list) or not data:
+            return "Error: JSON debe ser un array de objetos"
+        
+        if not output_file:
+            output_file = input_file.rsplit('.', 1)[0] + '.csv'
+        else:
+            output_file = os.path.expanduser(output_file)
+        
+        headers = data[0].keys()
+        
+        with open(output_file, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            writer.writerows(data)
+        
+        log_operation("json_to_csv", {"input": input_file}, f"output:{output_file}")
+        return f"Convertido: {output_file} ({len(data)} registros)"
+    
+    except Exception as e:
+        return f"Error convirtiendo: {e}"
+
+
+def tool_convert_file(input_file: str, output_format: str, output_file: str = None) -> str:
+    """Convert between file formats."""
+    try:
+        import csv
+        import xml.etree.ElementTree as ET
+        import yaml
+        
+        input_file = os.path.expanduser(input_file)
+        
+        if not os.path.exists(input_file):
+            return f"Error: Archivo no existe: {input_file}"
+        
+        # Read input
+        ext = input_file.rsplit('.', 1)[-1].lower()
+        
+        with open(input_file, 'r', encoding='utf-8') as f:
+            if ext == 'csv':
+                data = list(csv.DictReader(f))
+            elif ext == 'json':
+                data = json.load(f)
+            elif ext == 'xml':
+                tree = ET.parse(f)
+                root = tree.getroot()
+                data = [{elem.tag: elem.text for elem in child} for child in root]
+            elif ext == 'yaml' or ext == 'yml':
+                data = yaml.safe_load(f)
+            elif ext == 'md' or ext == 'txt':
+                data = f.read()
+            else:
+                return f"Formato no soportado: {ext}"
+        
+        # Generate output
+        if not output_file:
+            output_file = input_file.rsplit('.', 1)[0] + '.' + output_format
+        else:
+            output_file = os.path.expanduser(output_file)
+        
+        with open(output_file, 'w', encoding='utf-8') as f:
+            if output_format == 'csv':
+                if isinstance(data, list) and data:
+                    writer = csv.DictWriter(f, fieldnames=data[0].keys())
+                    writer.writeheader()
+                    writer.writerows(data)
+            elif output_format == 'json':
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            elif output_format == 'xml':
+                root = ET.Element("data")
+                for item in data:
+                    elem = ET.SubElement(root, "item")
+                    for k, v in item.items():
+                        child = ET.SubElement(elem, k)
+                        child.text = str(v)
+                ET.ElementTree(root).write(f, encoding='unicode')
+            elif output_format == 'yaml':
+                yaml.dump(data, f, allow_unicode=True)
+            elif output_format == 'md':
+                if isinstance(data, list) and data:
+                    f.write("| " + " | ".join(data[0].keys()) + " |\n")
+                    f.write("|" + "|".join(["---"] * len(data[0])) + "|\n")
+                    for row in data:
+                        f.write("| " + " | ".join(str(v) for v in row.values()) + " |\n")
+            elif output_format == 'txt':
+                f.write(str(data))
+        
+        log_operation("convert_file", {"input": input_file}, f"output:{output_file}")
+        return f"Convertido: {output_file}"
+    
+    except Exception as e:
+        return f"Error convirtiendo: {e}"
+
+
+def tool_extract_pdf(pdf_path: str, pages: str = "all") -> str:
+    """Extract text from PDF."""
+    try:
+        from PyPDF2 import PdfReader
+        
+        pdf_path = os.path.expanduser(pdf_path)
+        
+        if not os.path.exists(pdf_path):
+            return f"Error: PDF no existe: {pdf_path}"
+        
+        reader = PdfReader(pdf_path)
+        total_pages = len(reader.pages)
+        
+        # Parse pages to extract
+        if pages == "all":
+            page_indices = range(total_pages)
+        else:
+            page_indices = []
+            for part in pages.split(","):
+                if "-" in part:
+                    start, end = part.split("-")
+                    page_indices.extend(range(int(start) - 1, int(end)))
+                else:
+                    page_indices.append(int(part) - 1)
+        
+        output = f"📄 PDF: {os.path.basename(pdf_path)} ({total_pages} páginas)\n\n"
+        
+        for i in page_indices:
+            if i < total_pages:
+                text = reader.pages[i].extract_text()
+                output += f"--- Página {i + 1} ---\n{text}\n\n"
+        
+        return output[:5000]
+    
+    except ImportError:
+        return "Error: PyPDF2 no instalado"
+    except Exception as e:
+        return f"Error extrayendo PDF: {e}"
+
+
+def tool_generate_csv(data: str, output_file: str, delimiter: str = ",") -> str:
+    """Generate CSV from JSON data."""
+    try:
+        import csv
+        
+        # Parse data
+        if isinstance(data, str):
+            rows = json.loads(data)
+        else:
+            rows = data
+        
+        if not isinstance(rows, list) or not rows:
+            return "Error: Datos deben ser un array de objetos"
+        
+        output_file = os.path.expanduser(output_file)
+        
+        with open(output_file, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=rows[0].keys(), delimiter=delimiter)
+            writer.writeheader()
+            writer.writerows(rows)
+        
+        log_operation("generate_csv", {"rows": len(rows)}, f"output:{output_file}")
+        return f"CSV generado: {output_file} ({len(rows)} filas)"
+    
+    except Exception as e:
+        return f"Error generando CSV: {e}"
+
+
+def tool_data_analysis(file_path: str, column: str = None) -> str:
+    """Basic data analysis."""
+    try:
+        import csv
+        
+        file_path = os.path.expanduser(file_path)
+        
+        if not os.path.exists(file_path):
+            return f"Error: Archivo no existe: {file_path}"
+        
+        ext = file_path.rsplit('.', 1)[-1].lower()
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            if ext == 'csv':
+                data = list(csv.DictReader(f))
+            elif ext == 'json':
+                data = json.load(f)
+            else:
+                return f"Formato no soportado: {ext}"
+        
+        if not data:
+            return "Sin datos para analizar"
+        
+        output = f"📊 Análisis de {os.path.basename(file_path)}:\n\n"
+        output += f"Total registros: {len(data)}\n"
+        output += f"Columnas: {', '.join(data[0].keys())}\n\n"
+        
+        if column and column in data[0]:
+            values = [row[column] for row in data if row.get(column)]
+            
+            # Try numeric analysis
+            try:
+                nums = [float(v) for v in values if v]
+                output += f"📊 Análisis de '{column}':\n"
+                output += f"  Min: {min(nums)}\n"
+                output += f"  Max: {max(nums)}\n"
+                output += f"  Promedio: {sum(nums) / len(nums):.2f}\n"
+                output += f"  Valores únicos: {len(set(values))}\n"
+            except ValueError:
+                # Text analysis
+                output += f"📊 Análisis de '{column}':\n"
+                output += f"  Valores únicos: {len(set(values))}\n"
+                from collections import Counter
+                counts = Counter(values)
+                output += f"  Más comunes: {counts.most_common(5)}\n"
+        
+        # Check for nulls
+        nulls = sum(1 for row in data if any(not v for v in row.values()))
+        output += f"\nRegistros con valores vacíos: {nulls}\n"
+        
+        return output
+    
+    except Exception as e:
+        return f"Error analizando: {e}"
+
+
+# ── Log & System Implementations ────────────────────────────
+def tool_log_analysis(log_file: str, lines: int = 100, filter: str = None) -> str:
+    """Analyze system logs."""
+    try:
+        log_file = os.path.expanduser(log_file)
+        
+        if not os.path.exists(log_file):
+            return f"Error: Log no existe: {log_file}"
+        
+        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+            all_lines = f.readlines()
+        
+        # Get last N lines
+        log_lines = all_lines[-lines:]
+        
+        # Filter if specified
+        if filter:
+            log_lines = [l for l in log_lines if filter.upper() in l.upper()]
+        
+        output = f"📋 Análisis de {os.path.basename(log_file)}:\n\n"
+        output += f"Líneas totales: {len(all_lines)}\n"
+        output += f"Líneas analizadas: {len(log_lines)}\n\n"
+        
+        # Count by level
+        from collections import Counter
+        levels = Counter()
+        for line in log_lines:
+            if "ERROR" in line.upper():
+                levels["ERROR"] += 1
+            elif "WARN" in line.upper():
+                levels["WARN"] += 1
+            elif "INFO" in line.upper():
+                levels["INFO"] += 1
+            else:
+                levels["OTHER"] += 1
+        
+        output += "Por nivel:\n"
+        for level, count in levels.most_common():
+            output += f"  {level}: {count}\n"
+        
+        # Show errors
+        errors = [l.strip() for l in log_lines if "ERROR" in l.upper()]
+        if errors:
+            output += f"\nÚltimos errores:\n"
+            for e in errors[:5]:
+                output += f"  • {e[:200]}\n"
+        
+        return output
+    
+    except Exception as e:
+        return f"Error analizando logs: {e}"
+
+
+def tool_generate_report(title: str, sections: list, output_file: str = None) -> str:
+    """Generate Markdown report."""
+    try:
+        output = f"# {title}\n\n"
+        output += f"*Generado: {datetime.now().strftime('%Y-%m-%d %H:%M')}*\n\n"
+        
+        for section in sections:
+            heading = section.get("heading", "")
+            content = section.get("content", "")
+            data = section.get("data", [])
+            
+            if heading:
+                output += f"## {heading}\n\n"
+            
+            if content:
+                output += f"{content}\n\n"
+            
+            if data:
+                if isinstance(data, list) and data and isinstance(data[0], dict):
+                    # Table
+                    headers = data[0].keys()
+                    output += "| " + " | ".join(headers) + " |\n"
+                    output += "|" + "|".join(["---"] * len(headers)) + "|\n"
+                    for row in data:
+                        output += "| " + " | ".join(str(v) for v in row.values()) + " |\n"
+                    output += "\n"
+                elif isinstance(data, list):
+                    # List
+                    for item in data:
+                        output += f"- {item}\n"
+                    output += "\n"
+        
+        if output_file:
+            output_file = os.path.expanduser(output_file)
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(output)
+            return f"Reporte generado: {output_file}"
+        
+        return output
+    
+    except Exception as e:
+        return f"Error generando reporte: {e}"
+
+
+# ── Security Implementations ────────────────────────────────
+def tool_security_audit(scope: str = "full") -> str:
+    """Basic security audit."""
+    try:
+        output = "🔒 Auditoría de Seguridad\n\n"
+        
+        if scope in ["full", "ports"]:
+            output += "📡 Puertos abiertos:\n"
+            result = subprocess.run(
+                ["ss", "-tlnp"],
+                capture_output=True, text=True, timeout=10
+            )
+            lines = result.stdout.strip().split('\n')[1:]
+            for line in lines[:20]:
+                parts = line.split()
+                if len(parts) >= 4:
+                    output += f"  • {parts[3]} ({parts[5] if len(parts) > 5 else 'N/A'})\n"
+            output += "\n"
+        
+        if scope in ["full", "users"]:
+            output += "👤 Usuarios con login:\n"
+            result = subprocess.run(
+                ["grep", "-v", "nologin", "/etc/passwd"],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.strip().split('\n')[:5]:
+                parts = line.split(':')
+                output += f"  • {parts[0]} (uid:{parts[2]})\n"
+            output += "\n"
+        
+        if scope in ["full", "files"]:
+            output += "📁 Archivos con permisos 777:\n"
+            result = subprocess.run(
+                ["find", HOME, "-perm", "777", "-type", "f", "-maxdepth", "3"],
+                capture_output=True, text=True, timeout=10
+            )
+            files = result.stdout.strip().split('\n') if result.stdout.strip() else []
+            for f in files[:10]:
+                output += f"  ⚠️ {f}\n"
+            if not files or files == ['']:
+                output += "  ✅ Ninguno encontrado\n"
+            output += "\n"
+        
+        return output
+    
+    except Exception as e:
+        return f"Error en auditoría: {e}"
+
+
+def tool_secret_detection(path: str = None, extensions: str = ".py,.js,.ts,.env,.json,.yaml,.yml,.cfg,.conf") -> str:
+    """Detect potential secrets in code."""
+    try:
+        if not path:
+            path = HOME
+        path = os.path.expanduser(path)
+        
+        # Common secret patterns
+        secret_patterns = [
+            r'(?i)(password|passwd|pwd)\s*[=:]\s*["\'][^"\']+["\']',
+            r'(?i)(secret|token|api_key|apikey|api-key)\s*[=:]\s*["\'][^"\']+["\']',
+            r'(?i)(access_key|secret_key)\s*[=:]\s*["\'][^"\']+["\']',
+            r'(?i)(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY)\s*[=:]\s*["\'][^"\']+["\']',
+            r'-----BEGIN (RSA |EC )?PRIVATE KEY-----',
+            r'(?i)bearer\s+[a-zA-Z0-9_\-\.]+',
+        ]
+        
+        import re
+        ext_list = extensions.split(',')
+        
+        output = "🔐 Detección de Secretos\n\n"
+        findings = []
+        
+        for root, dirs, files in os.walk(path):
+            # Skip hidden dirs and common non-code dirs
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'venv', '.git']]
+            
+            for file in files:
+                if any(file.endswith(ext) for ext in ext_list):
+                    filepath = os.path.join(root, file)
+                    try:
+                        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                        
+                        for pattern in secret_patterns:
+                            matches = re.findall(pattern, content)
+                            for match in matches:
+                                if len(match) > 5:  # Skip short matches
+                                    findings.append({
+                                        "file": filepath,
+                                        "pattern": match[:50]
+                                    })
+                    except Exception:
+                        pass
+        
+        if findings:
+            output += f"⚠️ Encontrados {len(findings)} posibles secretos:\n\n"
+            for f in findings[:20]:
+                output += f"  📄 {f['file']}\n"
+                output += f"     {f['pattern']}...\n\n"
+        else:
+            output += "✅ No se encontraron secretos obvios\n"
+        
+        return output
+    
+    except Exception as e:
+        return f"Error escaneando: {e}"
+
+
+# ── Task & Planning Implementations ─────────────────────────
+def tool_plan_tasks(objective: str, context: str = None, max_tasks: int = 10) -> str:
+    """Generate task plan for an objective."""
+    try:
+        output = f"📋 Plan de Tareas: {objective}\n\n"
+        
+        if context:
+            output += f"Contexto: {context}\n\n"
+        
+        # This is a basic template - the LLM will enhance it
+        output += "Tareas sugeridas:\n\n"
+        output += "1. 🔍 Definir alcance y requisitos\n"
+        output += "2. 📊 Analizar recursos disponibles\n"
+        output += "3. 🎯 Identificar dependencias\n"
+        output += "4. 📝 Crear tareas detalladas\n"
+        output += "5. ⏰ Estimar tiempos\n"
+        output += "6. 🚀 Ejecutar en orden de prioridad\n"
+        output += "7. ✅ Verificar resultados\n"
+        output += "8. 📄 Documentar aprendizajes\n"
+        
+        return output
+    
+    except Exception as e:
+        return f"Error generando plan: {e}"
 def handle_request(request: dict) -> dict:
     method = request.get("method")
     req_id = request.get("id")
@@ -6015,6 +7251,98 @@ def handle_request(request: dict) -> dict:
                     arguments.get("signature"),
                     arguments.get("format", "both"),
                     arguments.get("copy_to_clipboard", False)
+                ),
+                # Web & Internet tools
+                "browse_web": lambda: tool_browse_web(
+                    arguments["url"],
+                    arguments.get("format", "text"),
+                    arguments.get("timeout", 30)
+                ),
+                "http_request": lambda: tool_http_request(
+                    arguments["url"],
+                    arguments.get("method", "GET"),
+                    arguments.get("headers"),
+                    arguments.get("body"),
+                    arguments.get("timeout", 30)
+                ),
+                "search_news": lambda: tool_search_news(
+                    arguments["query"],
+                    arguments.get("region", "wt-wt"),
+                    arguments.get("time", "w"),
+                    arguments.get("max_results", 10)
+                ),
+                "search_docs": lambda: tool_search_docs(
+                    arguments["query"],
+                    arguments.get("language"),
+                    arguments.get("max_results", 5)
+                ),
+                "dns_lookup": lambda: tool_dns_lookup(
+                    arguments["domain"],
+                    arguments.get("record_type", "ALL")
+                ),
+                "ssl_check": lambda: tool_ssl_check(arguments["domain"]),
+                "whois_lookup": lambda: tool_whois_lookup(arguments["domain"]),
+                # Database tools
+                "sql_query": lambda: tool_sql_query(
+                    arguments["query"],
+                    arguments.get("database"),
+                    arguments.get("params")
+                ),
+                "backup_database": lambda: tool_backup_database(
+                    arguments["database"],
+                    arguments.get("backup_path")
+                ),
+                # Data processing tools
+                "csv_to_json": lambda: tool_csv_to_json(
+                    arguments["input_file"],
+                    arguments.get("output_file")
+                ),
+                "json_to_csv": lambda: tool_json_to_csv(
+                    arguments["input_file"],
+                    arguments.get("output_file")
+                ),
+                "convert_file": lambda: tool_convert_file(
+                    arguments["input_file"],
+                    arguments["output_format"],
+                    arguments.get("output_file")
+                ),
+                "extract_pdf": lambda: tool_extract_pdf(
+                    arguments["pdf_path"],
+                    arguments.get("pages", "all")
+                ),
+                "generate_csv": lambda: tool_generate_csv(
+                    arguments["data"],
+                    arguments["output_file"],
+                    arguments.get("delimiter", ",")
+                ),
+                "data_analysis": lambda: tool_data_analysis(
+                    arguments["file_path"],
+                    arguments.get("column")
+                ),
+                # Log & System tools
+                "log_analysis": lambda: tool_log_analysis(
+                    arguments["log_file"],
+                    arguments.get("lines", 100),
+                    arguments.get("filter")
+                ),
+                "generate_report": lambda: tool_generate_report(
+                    arguments["title"],
+                    arguments["sections"],
+                    arguments.get("output_file")
+                ),
+                # Security tools
+                "security_audit": lambda: tool_security_audit(
+                    arguments.get("scope", "full")
+                ),
+                "secret_detection": lambda: tool_secret_detection(
+                    arguments.get("path"),
+                    arguments.get("extensions", ".py,.js,.ts,.env,.json,.yaml,.yml,.cfg,.conf")
+                ),
+                # Task tools
+                "plan_tasks": lambda: tool_plan_tasks(
+                    arguments["objective"],
+                    arguments.get("context"),
+                    arguments.get("max_tasks", 10)
                 )
             }
 
