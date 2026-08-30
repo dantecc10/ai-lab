@@ -1,11 +1,12 @@
 [Unit]
 Description=Gemma 4 AI Server (llama.cpp)
-After=network.target nvidia-persistenced.service
-Wants=nvidia-persistenced.service
+After=network.target network-online.target nvidia-persistenced.service
+Wants=nvidia-persistenced.service network-online.target
 
 [Service]
 Type=simple
 EnvironmentFile=-/home/darkseid/.config/gemma4-server.conf
+ExecStartPre=/bin/bash -c '. /home/darkseid/.config/gemma4-server.conf; test -f "${MODEL_PATH}" || (echo "Model not found: ${MODEL_PATH}" >&2; exit 1)'
 ExecStart=/bin/bash -c '\
   . /home/darkseid/.config/gemma4-server.conf; \
   if [ "$USE_SWAP" = "true" ] && [ "$SWAP_AGGRESSIVE" = "true" ]; then \

@@ -1,10 +1,12 @@
 [Unit]
 Description=E4B Sub-agent Server (llama.cpp)
-After=network.target
+After=network.target network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 EnvironmentFile=-/home/darkseid/.config/e4b-server.conf
+ExecStartPre=/bin/bash -c '. /home/darkseid/.config/e4b-server.conf; test -f "${MODEL_PATH}" || (echo "Model not found: ${MODEL_PATH}" >&2; exit 1)'
 ExecStart=/bin/bash -c '\
   . /home/darkseid/.config/e4b-server.conf; \
   exec /home/darkseid/llama.cpp/build/bin/llama-server \

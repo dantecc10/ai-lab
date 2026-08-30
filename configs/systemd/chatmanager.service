@@ -1,11 +1,11 @@
 [Unit]
-Description=Whisper API Server (Speech-to-Text)
+Description=Chat Manager (ChatShare local)
 After=network.target network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /home/darkseid/scripting/gpu-tools/skills/whisper_server.py
+ExecStart=/usr/bin/python3 /home/darkseid/ai-lab/scripts/tools/chat_share_server.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
