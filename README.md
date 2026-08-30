@@ -20,7 +20,7 @@ Sistema completo de IA local con GPU NVIDIA, modelos Gemma 4, asistente de voz, 
 ┌─────────────────────────────────────────────────────────────┐
 │  Puerto 9090 — Modelo Principal (12B, GPU, NGL=30)         │
 │  Web UI: http://localhost:9090                              │
-│  CTX=32768, 94 tools MCP                                   │
+│  CTX=32768, 105 tools MCP                                  │
 │  • Razonamiento complejo                                    │
 │  • Delega tools simples → Sub-agente                        │
 └─────────────────────────────────────────────────────────────┘
@@ -207,6 +207,21 @@ Ubicación: `~/llama.cpp/ai-models/`
 
 ### Monitoring (4)
 - `monitor_realtime`, `monitor_top_processes`, `disk_usage`, `disk_io`
+
+### Email (3)
+- `email_send` — Enviar correos vía SMTP
+- `email_configure` — Configurar credenciales SMTP
+- `email_test` — Probar configuración SMTP
+
+### SSH (8)
+- `ssh_connect` — Ejecutar comandos remotos
+- `ssh_copy` — Subir archivos vía SCP
+- `ssh_fetch` — Descargar archivos vía SCP
+- `ssh_sync` — Sincronizar directorios vía rsync
+- `ssh_tunnel` — Crear túnel SSH con autossh
+- `ssh_list_hosts` — Listar hosts SSH configurados
+- `ssh_add_host` — Agregar host a SSH config
+- `ssh_status` — Verificar estado de servidor remoto
 
 ## ChatShare
 
