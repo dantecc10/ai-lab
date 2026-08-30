@@ -2679,6 +2679,146 @@ TOOLS = [
             },
             "required": ["objective"]
         }
+    },
+    # ── Enhanced Communication Tools ────────────────────────
+    {
+        "name": "notify_contextual",
+        "description": "Notificación contextual: la IA notifica cuando completa una tarea. Usa esto cuando termines de hacer algo importante.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Nombre de la tarea completada (ej: 'Envío de correo', 'Backup de DB')."
+                },
+                "result": {
+                    "type": "string",
+                    "description": "Resultado breve de la tarea."
+                },
+                "importance": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high", "critical"],
+                    "description": "Importancia de la notificación.",
+                    "default": "medium"
+                },
+                "icon": {
+                    "type": "string",
+                    "description": "Icono (ej: mail-send, document-save, dialog-information)."
+                }
+            },
+            "required": ["task", "result"]
+        }
+    },
+    # ── Enhanced Search Tools ───────────────────────────────
+    {
+        "name": "search_google",
+        "description": "Búsqueda en Google con soporte para AI Mode. Mejor que DuckDuckGo para noticias y eventos recientes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Término de búsqueda."
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Máximo de resultados.",
+                    "default": 10
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Idioma (es, en, etc.).",
+                    "default": "es"
+                },
+                "region": {
+                    "type": "string",
+                    "description": "Región (mx, us, etc.).",
+                    "default": "mx"
+                },
+                "time_filter": {
+                    "type": "string",
+                    "enum": ["hour", "day", "week", "month", "year"],
+                    "description": "Filtrar por tiempo."
+                },
+                "site": {
+                    "type": "string",
+                    "description": "Sitio específico (ej: espn.com, marca.com)."
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "search_sports",
+        "description": "Búsqueda de resultados deportivos en vivo. Fútbol,篮球, tenis, etc.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Búsqueda (ej: 'Real Madrid vs Barcelona', 'Liga MX resultados')."
+                },
+                "sport": {
+                    "type": "string",
+                    "enum": ["football", "basketball", "tennis", "f1", "mma", "other"],
+                    "description": "Tipo de deporte.",
+                    "default": "football"
+                },
+                "live": {
+                    "type": "boolean",
+                    "description": "Buscar solo partidos en vivo.",
+                    "default": False
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "fetch_article",
+        "description": "Obtiene contenido completo de un artículo web usando BeautifulSoup. Limpia HTML y retorna texto limpio.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL del artículo."
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": "Máximo de caracteres.",
+                    "default": 5000
+                },
+                "extract_links": {
+                    "type": "boolean",
+                    "description": "Incluir enlaces encontrados.",
+                    "default": False
+                }
+            },
+            "required": ["url"]
+        }
+    },
+    {
+        "name": "search_with_content",
+        "description": "Busca en Google y obtiene el contenido completo del primer resultado. Ideal para respuestas rápidas.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Término de búsqueda."
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": "Máximo de caracteres del contenido.",
+                    "default": 3000
+                },
+                "site": {
+                    "type": "string",
+                    "description": "Sitio específico."
+                }
+            },
+            "required": ["query"]
+        }
     }
 ]
 
@@ -7028,6 +7168,368 @@ def tool_plan_tasks(objective: str, context: str = None, max_tasks: int = 10) ->
     
     except Exception as e:
         return f"Error generando plan: {e}"
+
+
+# ── Enhanced Communication Implementations ──────────────────
+def tool_notify_contextual(task: str, result: str, importance: str = "medium", icon: str = None) -> str:
+    """Send contextual notification when completing a task."""
+    # Determine icon based on importance and task
+    if not icon:
+        if importance == "critical":
+            icon = "dialog-error"
+        elif importance == "high":
+            icon = "dialog-warning"
+        elif "email" in task.lower() or "correo" in task.lower():
+            icon = "mail-send"
+        elif "backup" in task.lower() or "respaldo" in task.lower():
+            icon = "document-save"
+        elif "deploy" in task.lower() or "despliegue" in task.lower():
+            icon = "system-run"
+        elif "error" in result.lower() or "❌" in result:
+            icon = "dialog-error"
+        elif "✅" in result or "completado" in result.lower():
+            icon = "emblem-ok"
+        else:
+            icon = "dialog-information"
+
+    # Build message
+    msg = f"✅ {task}\n{result[:150]}"
+
+    try:
+        subprocess.run(
+            ["notify-send", "-u", importance if importance in ["low", "normal", "critical"] else "normal",
+             "-i", icon, "-a", "AI Lab", "-t", "5000",
+             f"🤖 Tarea Completada", msg],
+            capture_output=True,
+            timeout=3
+        )
+    except Exception:
+        pass
+
+    log_operation("notify_contextual", {"task": task, "importance": importance}, "sent")
+    return f"🔔 Notificación enviada: {task}"
+
+
+# ── Enhanced Search Implementations ─────────────────────────
+def _google_search(query: str, max_results: int = 10, language: str = "es", 
+                   region: str = "mx", time_filter: str = None, site: str = None) -> list:
+    """Perform Google search via scraping."""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        # Build search URL
+        search_query = query
+        if site:
+            search_query = f"site:{site} {query}"
+
+        params = {
+            "q": search_query,
+            "hl": language,
+            "gl": region,
+            "num": max_results
+        }
+
+        if time_filter:
+            time_map = {"hour": "h1", "day": "d1", "week": "w1", "month": "m1", "year": "y1"}
+            params["tbs"] = f"qdr:{time_map.get(time_filter, 'w1')}"
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": f"{language},{language};q=0.9"
+        }
+
+        response = requests.get("https://www.google.com/search", params=params, headers=headers, timeout=15)
+        soup = BeautifulSoup(response.text, "lxml")
+
+        results = []
+
+        # Parse search results
+        for g in soup.select("div.g"):
+            title_el = g.select_one("h3")
+            link_el = g.select_one("a")
+            snippet_el = g.select_one("div[data-sncf], span.aCOpRe, div.VwiC3b")
+
+            if title_el and link_el:
+                title = title_el.get_text(strip=True)
+                url = link_el.get("href", "")
+                snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+
+                if url.startswith("/url?q="):
+                    url = url.split("/url?q=")[1].split("&")[0]
+
+                if url.startswith("http"):
+                    results.append({
+                        "title": title,
+                        "url": url,
+                        "snippet": snippet[:300]
+                    })
+
+            if len(results) >= max_results:
+                break
+
+        # Also try to extract AI Mode / featured snippet
+        ai_snippet = soup.select_one("div[data-attrid='wa:/description'], div.kb0PBd, div.LGOjhe")
+        if ai_snippet:
+            ai_text = ai_snippet.get_text(strip=True)
+            if ai_text and len(ai_text) > 20:
+                results.insert(0, {
+                    "title": "🤖 Respuesta AI de Google",
+                    "url": "",
+                    "snippet": ai_text[:500],
+                    "is_ai_mode": True
+                })
+
+        return results
+
+    except Exception as e:
+        return []
+
+
+def tool_search_google(query: str, max_results: int = 10, language: str = "es",
+                       region: str = "mx", time_filter: str = None, site: str = None) -> str:
+    """Search Google with AI Mode support."""
+    try:
+        results = _google_search(query, max_results, language, region, time_filter, site)
+
+        if not results:
+            # Fallback to DuckDuckGo
+            try:
+                from duckduckgo_search import DDGS
+                with DDGS() as ddgs:
+                    ddg_results = list(ddgs.text(query, max_results=max_results))
+
+                if ddg_results:
+                    output = f"🔍 Resultados para '{query}' (DuckDuckGo fallback):\n\n"
+                    for i, r in enumerate(ddg_results, 1):
+                        output += f"{i}. **{r.get('title', 'N/A')}**\n"
+                        output += f"   URL: {r.get('href', 'N/A')}\n"
+                        output += f"   {r.get('body', 'N/A')[:200]}\n\n"
+                    return output
+            except Exception:
+                pass
+
+            return f"No se encontraron resultados para: {query}"
+
+        output = f"🔍 Resultados Google para '{query}' ({len(results)} resultados):\n\n"
+
+        for i, r in enumerate(results, 1):
+            if r.get("is_ai_mode"):
+                output += f"🤖 **AI Mode:**\n{r['snippet']}\n\n"
+            else:
+                output += f"{i}. **{r['title']}**\n"
+                output += f"   URL: {r['url']}\n"
+                if r['snippet']:
+                    output += f"   {r['snippet']}\n"
+                output += "\n"
+
+        log_operation("search_google", {"query": query}, f"{len(results)} results")
+        return output
+
+    except Exception as e:
+        return f"Error en búsqueda Google: {e}"
+
+
+def tool_search_sports(query: str, sport: str = "football", live: bool = False) -> str:
+    """Search for sports results."""
+    try:
+        # Build sport-specific query
+        sport_sites = {
+            "football": ["espndeportes.espn.com", "marca.com", "as.com", ".goal.com", "flashscore.com"],
+            "basketball": ["espn.com/nba", "marca.com/baloncesto"],
+            "tennis": ["espn.com/tenis", "marca.com/tenis"],
+            "f1": ["espn.com/f1", "marca.com/motor"],
+            "mma": ["espn.com/mma", "sherdog.com"]
+        }
+
+        sites = sport_sites.get(sport, sport_sites["football"])
+
+        # Try Google first
+        search_query = query
+        if live:
+            search_query += " en vivo HOY"
+
+        results = _google_search(search_query, max_results=5, language="es", region="mx")
+
+        if not results:
+            # Try specific sports sites
+            for site in sites[:2]:
+                results = _google_search(f"{query} site:{site}", max_results=3)
+                if results:
+                    break
+
+        if not results:
+            # Fallback to DuckDuckGo news
+            try:
+                from duckduckgo_search import DDGS
+                with DDGS() as ddgs:
+                    results = list(ddgs.news(f"{query} {sport} resultados", max_results=5))
+
+                if results:
+                    output = f"⚽ Resultados deportivos para '{query}':\n\n"
+                    for i, r in enumerate(results, 1):
+                        output += f"{i}. **{r.get('title', 'N/A')}**\n"
+                        output += f"   Fuente: {r.get('source', 'N/A')}\n"
+                        output += f"   {r.get('url', 'N/A')}\n\n"
+                    return output
+            except Exception:
+                pass
+
+            return f"No se encontraron resultados deportivos para: {query}"
+
+        output = f"⚽ Resultados deportivos para '{query}':\n\n"
+
+        for i, r in enumerate(results[:5], 1):
+            output += f"{i}. **{r['title']}**\n"
+            output += f"   {r['url']}\n"
+            if r['snippet']:
+                output += f"   {r['snippet'][:200]}\n"
+            output += "\n"
+
+        log_operation("search_sports", {"query": query, "sport": sport}, f"{len(results)} results")
+        return output
+
+    except Exception as e:
+        return f"Error buscando deportes: {e}"
+
+
+def tool_fetch_article(url: str, max_chars: int = 5000, extract_links: bool = False) -> str:
+    """Fetch and extract article content using BeautifulSoup."""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, "lxml")
+
+        # Remove unwanted elements
+        for tag in soup.select("script, style, nav, footer, header, aside, .ad, .advertisement, .sidebar"):
+            tag.decompose()
+
+        # Try to find main content
+        article = None
+        selectors = [
+            "article", "main", "[role='main']",
+            ".article-content", ".post-content", ".entry-content",
+            ".story-body", ".article-body", ".content-body"
+        ]
+
+        for selector in selectors:
+            article = soup.select_one(selector)
+            if article:
+                break
+
+        if not article:
+            article = soup.body or soup
+
+        # Extract text
+        text = article.get_text(separator="\n", strip=True)
+
+        # Clean up whitespace
+        import re
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r' {2,}', ' ', text)
+
+        # Extract title
+        title = ""
+        title_tag = soup.select_one("h1") or soup.select_one("title")
+        if title_tag:
+            title = title_tag.get_text(strip=True)
+
+        # Build output
+        output = f"📄 **{title}**\n"
+        output += f"🌐 {url}\n\n"
+        output += text[:max_chars]
+
+        if len(text) > max_chars:
+            output += f"\n\n... [{len(text) - max_chars} caracteres más]"
+
+        # Extract links if requested
+        if extract_links:
+            links = []
+            for a in article.select("a[href]"):
+                href = a.get("href", "")
+                link_text = a.get_text(strip=True)
+                if href.startswith("http") and link_text and len(link_text) > 5:
+                    links.append(f"  - [{link_text}]({href})")
+
+            if links:
+                output += f"\n\n🔗 Enlaces encontrados ({len(links)}):\n"
+                output += "\n".join(links[:20])
+
+        log_operation("fetch_article", {"url": url}, f"{len(text)} chars")
+        return output
+
+    except Exception as e:
+        return f"Error obteniendo artículo: {e}"
+
+
+def tool_search_with_content(query: str, max_chars: int = 3000, site: str = None) -> str:
+    """Search Google and fetch content from first result."""
+    try:
+        # Search
+        results = _google_search(query, max_results=3, site=site)
+
+        if not results:
+            return f"No se encontraron resultados para: {query}"
+
+        output = f"🔍 Búsqueda: '{query}'\n\n"
+
+        # Try to fetch first result with content
+        first_result = None
+        for r in results:
+            if r.get("url") and r["url"].startswith("http"):
+                first_result = r
+                break
+
+        if first_result:
+            output += f"📄 **{first_result['title']}**\n"
+            output += f"🌐 {first_result['url']}\n\n"
+
+            # Fetch content
+            try:
+                import requests
+                from bs4 import BeautifulSoup
+
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+                }
+
+                response = requests.get(first_result["url"], headers=headers, timeout=10)
+                soup = BeautifulSoup(response.text, "lxml")
+
+                # Remove unwanted
+                for tag in soup.select("script, style, nav, footer, header, aside"):
+                    tag.decompose()
+
+                # Find content
+                article = soup.select_one("article, main, [role='main']") or soup.body
+                if article:
+                    text = article.get_text(separator="\n", strip=True)
+                    import re
+                    text = re.sub(r'\n{3,}', '\n\n', text)
+                    output += text[:max_chars]
+                else:
+                    output += first_result.get("snippet", "Sin contenido disponible")
+            except Exception:
+                output += first_result.get("snippet", "Error obteniendo contenido")
+        else:
+            # Just show snippets
+            for i, r in enumerate(results, 1):
+                output += f"{i}. **{r['title']}**\n"
+                output += f"   {r.get('snippet', 'N/A')[:200]}\n\n"
+
+        log_operation("search_with_content", {"query": query}, "OK")
+        return output
+
+    except Exception as e:
+        return f"Error: {e}"
 def handle_request(request: dict) -> dict:
     method = request.get("method")
     req_id = request.get("id")
@@ -7528,6 +8030,37 @@ def handle_request(request: dict) -> dict:
                     arguments["objective"],
                     arguments.get("context"),
                     arguments.get("max_tasks", 10)
+                ),
+                # Enhanced Communication tools
+                "notify_contextual": lambda: tool_notify_contextual(
+                    arguments["task"],
+                    arguments["result"],
+                    arguments.get("importance", "medium"),
+                    arguments.get("icon")
+                ),
+                # Enhanced Search tools
+                "search_google": lambda: tool_search_google(
+                    arguments["query"],
+                    arguments.get("max_results", 10),
+                    arguments.get("language", "es"),
+                    arguments.get("region", "mx"),
+                    arguments.get("time_filter"),
+                    arguments.get("site")
+                ),
+                "search_sports": lambda: tool_search_sports(
+                    arguments["query"],
+                    arguments.get("sport", "football"),
+                    arguments.get("live", False)
+                ),
+                "fetch_article": lambda: tool_fetch_article(
+                    arguments["url"],
+                    arguments.get("max_chars", 5000),
+                    arguments.get("extract_links", False)
+                ),
+                "search_with_content": lambda: tool_search_with_content(
+                    arguments["query"],
+                    arguments.get("max_chars", 3000),
+                    arguments.get("site")
                 )
             }
 
