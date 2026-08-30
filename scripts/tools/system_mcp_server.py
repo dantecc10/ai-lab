@@ -331,7 +331,7 @@ TOOLS = [
     },
     {
         "name": "send_notification",
-        "description": "Envía una notificación de escritorio.",
+        "description": "Envía una notificación de escritorio con opciones avanzadas.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -342,6 +342,30 @@ TOOLS = [
                 "message": {
                     "type": "string",
                     "description": "Mensaje de la notificación."
+                },
+                "urgency": {
+                    "type": "string",
+                    "enum": ["low", "normal", "critical"],
+                    "description": "Nivel de urgencia.",
+                    "default": "normal"
+                },
+                "icon": {
+                    "type": "string",
+                    "description": "Ruta del icono o nombre stock (ej: dialog-information, weather-storm)."
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout en milisegundos (0 = no expira).",
+                    "default": 5000
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Categoría (ej: email, msg, transfer)."
+                },
+                "transient": {
+                    "type": "boolean",
+                    "description": "Notificación transitoria (desaparece rápido).",
+                    "default": False
                 }
             },
             "required": ["title", "message"]
@@ -2997,14 +3021,55 @@ def tool_media_control(action: str) -> str:
         return f"Error en media control: {e}"
 
 
-def tool_send_notification(title: str, message: str) -> str:
+def tool_send_notification(title: str, message: str, urgency: str = "normal", icon: str = None, timeout: int = 5000, category: str = None, transient: bool = False) -> str:
+    """Send desktop notification with advanced options."""
     try:
-        subprocess.run(
-            ["notify-send", title, message],
-            capture_output=True, timeout=5
-        )
-        log_operation("send_notification", {"title": title}, "sent")
-        return f"🔔 Notificación enviada: {title}"
+        cmd = ["notify-send"]
+        
+        # Urgency
+        if urgency in ["low", "normal", "critical"]:
+            cmd.extend(["-u", urgency])
+        
+        # Timeout
+        if timeout > 0:
+            cmd.extend(["-t", str(timeout)])
+        
+        # Icon
+        if icon:
+            if icon.startswith("/") or icon.startswith("~"):
+                cmd.extend(["-i", os.path.expanduser(icon)])
+            else:
+                # Stock icon name
+                cmd.extend(["-i", icon])
+        
+        # Category
+        if category:
+            cmd.extend(["-c", category])
+        
+        # Transient
+        if transient:
+            cmd.append("-e")
+        
+        # App name
+        cmd.extend(["-a", "AI Lab"])
+        
+        # Title and message
+        cmd.append(title)
+        if message:
+            cmd.append(message)
+        
+        subprocess.run(cmd, capture_output=True, timeout=5)
+        
+        log_operation("send_notification", {"title": title, "urgency": urgency}, "sent")
+        
+        result = f"🔔 Notificación enviada: {title}"
+        if urgency == "critical":
+            result += " (CRÍTICA)"
+        elif urgency == "low":
+            result += " (baja prioridad)"
+        
+        return result
+    
     except FileNotFoundError:
         return "Error: notify-send no encontrado"
     except Exception as e:
@@ -6917,7 +6982,12 @@ def handle_request(request: dict) -> dict:
                 "media_control": lambda: tool_media_control(arguments["action"]),
                 "send_notification": lambda: tool_send_notification(
                     arguments["title"],
-                    arguments["message"]
+                    arguments["message"],
+                    arguments.get("urgency", "normal"),
+                    arguments.get("icon"),
+                    arguments.get("timeout", 5000),
+                    arguments.get("category"),
+                    arguments.get("transient", False)
                 ),
                 "spotify_search": lambda: tool_spotify_search(
                     arguments["query"],
