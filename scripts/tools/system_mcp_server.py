@@ -12,7 +12,10 @@ import subprocess
 import shutil
 import glob
 import time
+import base64
+import hashlib
 from datetime import datetime
+from urllib.parse import quote
 
 # Add venv site-packages for duckduckgo-search
 venv_site = "/tmp/search-env/lib/python3.12/site-packages"
@@ -25,6 +28,48 @@ BASE_DIR = HOME
 MAX_OUTPUT_LINES = 500
 MAX_FILE_SIZE = 1024 * 1024  # 1MB max read
 COMMAND_TIMEOUT = 30
+
+# ── Fernet Encryption ─────────────────────────────────────
+FERNET_KEY_PATH = os.path.join(HOME, ".local/share/chatmanager/secret_key")
+
+def _get_fernet():
+    """Get or create Fernet instance for encryption."""
+    try:
+        from cryptography.fernet import Fernet
+        os.makedirs(os.path.dirname(FERNET_KEY_PATH), exist_ok=True)
+        
+        if os.path.exists(FERNET_KEY_PATH):
+            with open(FERNET_KEY_PATH, "rb") as f:
+                key = f.read().strip()
+        else:
+            key = Fernet.generate_key()
+            with open(FERNET_KEY_PATH, "wb") as f:
+                f.write(key)
+            os.chmod(FERNET_KEY_PATH, 0o600)
+        
+        return Fernet(key)
+    except ImportError:
+        return None
+
+def encrypt_value(value: str) -> str:
+    """Encrypt a string value."""
+    fernet = _get_fernet()
+    if fernet:
+        return fernet.encrypt(value.encode()).decode()
+    return base64.b64encode(value.encode()).decode()
+
+def decrypt_value(encrypted: str) -> str:
+    """Decrypt a string value."""
+    fernet = _get_fernet()
+    if fernet:
+        try:
+            return fernet.decrypt(encrypted.encode()).decode()
+        except Exception:
+            pass
+    try:
+        return base64.b64decode(encrypted.encode()).decode()
+    except Exception:
+        return encrypted
 
 BLOCKED_COMMANDS = [
     "rm -rf /", "rm -rf /*", "dd if=", "mkfs", "chmod 777",
@@ -1924,6 +1969,142 @@ TOOLS = [
                 }
             },
             "required": ["host"]
+        }
+    },
+    # ── Communication Tools ────────────────────────────────
+    {
+        "name": "email_discover_settings",
+        "description": "Auto-descubre configuración SMTP para un dominio. Busca MX records y prueba puertos.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "description": "Email completo (ej: user@gmail.com) o dominio (gmail.com)."
+                }
+            },
+            "required": ["email"]
+        }
+    },
+    {
+        "name": "email_setup_wizard",
+        "description": "Wizard completo: descubre SMTP, configura msmtp, guarda en DB encriptado, y prueba conexión.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "description": "Email completo (ej: user@gmail.com)."
+                },
+                "password": {
+                    "type": "string",
+                    "description": "Contraseña o App Password."
+                },
+                "display_name": {
+                    "type": "string",
+                    "description": "Nombre para mostrar (opcional)."
+                }
+            },
+            "required": ["email", "password"]
+        }
+    },
+    {
+        "name": "format_whatsapp",
+        "description": "Formatea texto para WhatsApp con emojis, negritas, listas anidadas y elementos rich text.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "elements": {
+                    "type": "array",
+                    "description": "Array de elementos a formatear.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string", "enum": ["heading", "bold", "italic", "strikethrough", "code", "text", "list", "emoji", "link", "newline", "divider"]},
+                            "text": {"type": "string"},
+                            "items": {"type": "array", "items": {"type": "object"}},
+                            "url": {"type": "string"},
+                            "name": {"type": "string"}
+                        },
+                        "required": ["type"]
+                    }
+                },
+                "copy_to_clipboard": {
+                    "type": "boolean",
+                    "description": "Copiar resultado al clipboard.",
+                    "default": True
+                }
+            },
+            "required": ["elements"]
+        }
+    },
+    {
+        "name": "whatsapp_link",
+        "description": "Genera enlace de WhatsApp con mensaje prellenado.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string",
+                    "description": "Número de teléfono con código país (ej: 521234567890)."
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Mensaje prellenado."
+                },
+                "copy_to_clipboard": {
+                    "type": "boolean",
+                    "description": "Copiar enlace al clipboard.",
+                    "default": True
+                }
+            },
+            "required": ["phone", "message"]
+        }
+    },
+    {
+        "name": "format_email",
+        "description": "Compone cuerpo de email con formato (plain text, HTML, o ambos).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": "Nombre del destinatario (para saludo)."
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Asunto del correo."
+                },
+                "greeting": {
+                    "type": "string",
+                    "description": "Saludo personalizado (default: 'Hola {to},')."
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Cuerpo principal del correo."
+                },
+                "bullets": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Lista de puntos a incluir."
+                },
+                "signature": {
+                    "type": "string",
+                    "description": "Firma del correo."
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["plain", "html", "both"],
+                    "description": "Formato de salida.",
+                    "default": "both"
+                },
+                "copy_to_clipboard": {
+                    "type": "boolean",
+                    "description": "Copiar resultado al clipboard.",
+                    "default": False
+                }
+            },
+            "required": ["body"]
         }
     }
 ]
@@ -4711,7 +4892,433 @@ def tool_email_test(to: str = None) -> str:
         return f"Error: {e}"
 
 
-# ── SSH Implementations ────────────────────────────────────
+# ── Communication Implementations ──────────────────────────
+def _discover_mx_records(domain: str) -> list:
+    """Discover MX records for a domain."""
+    try:
+        import dns.resolver
+        answers = dns.resolver.resolve(domain, 'MX')
+        mx_records = []
+        for rdata in answers:
+            mx_records.append({
+                "host": str(rdata.exchange).rstrip('.'),
+                "priority": rdata.preference
+            })
+        mx_records.sort(key=lambda x: x["priority"])
+        return mx_records
+    except Exception:
+        return []
+
+
+def _probe_smtp(host: str, ports: list = [587, 465, 25]) -> dict:
+    """Probe SMTP server for supported ports and TLS."""
+    import socket
+    
+    for port in ports:
+        try:
+            sock = socket.create_connection((host, port), timeout=5)
+            banner = sock.recv(1024).decode('utf-8', errors='ignore')
+            
+            if port == 465:
+                # SSL port
+                sock.close()
+                return {"port": port, "tls": True, "ssl": True, "banner": banner.strip()}
+            else:
+                # Try STARTTLS
+                sock.send(b"EHLO test\r\n")
+                sock.recv(1024)
+                sock.send(b"STARTTLS\r\n")
+                resp = sock.recv(1024).decode('utf-8', errors='ignore')
+                sock.close()
+                
+                if "220" in resp:
+                    return {"port": port, "tls": True, "ssl": False, "banner": banner.strip()}
+                else:
+                    return {"port": port, "tls": False, "ssl": False, "banner": banner.strip()}
+        except Exception:
+            continue
+    
+    return None
+
+
+def tool_email_discover_settings(email: str) -> str:
+    """Auto-discover SMTP settings for an email domain."""
+    try:
+        # Extract domain
+        if "@" in email:
+            domain = email.split("@")[1]
+        else:
+            domain = email
+        
+        # Discover MX records
+        mx_records = _discover_mx_records(domain)
+        
+        if not mx_records:
+            return f"No se encontraron MX records para {domain}"
+        
+        result = f"📧 Configuración descubierta para {domain}:\n\n"
+        result += "MX Records:\n"
+        
+        best_smtp = None
+        
+        for mx in mx_records:
+            result += f"  • {mx['host']} (prioridad: {mx['priority']})\n"
+            
+            # Probe the first MX server
+            if not best_smtp:
+                probe = _probe_smtp(mx["host"])
+                if probe:
+                    best_smtp = {
+                        "host": mx["host"],
+                        "port": probe["port"],
+                        "tls": probe["tls"],
+                        "ssl": probe.get("ssl", False)
+                    }
+        
+        if best_smtp:
+            result += f"\n✅ SMTP detectado:\n"
+            result += f"  Host: {best_smtp['host']}\n"
+            result += f"  Puerto: {best_smtp['port']}\n"
+            result += f"  TLS: {'Sí' if best_smtp['tls'] else 'No'}\n"
+            result += f"  SSL: {'Sí' if best_smtp['ssl'] else 'No'}\n"
+        else:
+            result += "\n⚠️ No se pudo detectar SMTP automáticamente"
+        
+        return result
+    
+    except Exception as e:
+        return f"Error descubriendo configuración: {e}"
+
+
+def tool_email_setup_wizard(email: str, password: str, display_name: str = None) -> str:
+    """Complete email setup wizard: discover, configure, save, test."""
+    try:
+        import sqlite3
+        
+        # Extract domain and username
+        if "@" not in email:
+            return "Error: Se requiere un email completo (ej: user@gmail.com)"
+        
+        username = email.split("@")[0]
+        domain = email.split("@")[1]
+        
+        result = f"🔧 Wizard de configuración para {email}\n\n"
+        
+        # Step 1: Discover SMTP settings
+        result += "1️⃣ Descubriendo configuración SMTP...\n"
+        mx_records = _discover_mx_records(domain)
+        
+        if not mx_records:
+            return result + "❌ No se encontraron MX records. Configura manualmente con email_configure."
+        
+        smtp_host = mx_records[0]["host"]
+        probe = _probe_smtp(smtp_host)
+        
+        if not probe:
+            return result + "❌ No se pudo detectar el servidor SMTP."
+        
+        smtp_port = probe["port"]
+        tls = probe["tls"]
+        
+        result += f"  ✅ SMTP: {smtp_host}:{smtp_port}\n"
+        result += f"  ✅ TLS: {'Sí' if tls else 'No'}\n\n"
+        
+        # Step 2: Configure msmtp
+        result += "2️⃣ Configurando msmtp...\n"
+        
+        home = os.path.expanduser("~")
+        config_path = os.path.join(home, ".msmtprc")
+        
+        config = f"""account default
+host {smtp_host}
+port {smtp_port}
+auth on
+user {email}
+password {password}
+"""
+        if tls:
+            if probe.get("ssl"):
+                config += "tls on\n"
+            else:
+                config += "tls on\ntls_starttls on\n"
+        
+        config += f"from {email}\n"
+        
+        with open(config_path, "w") as f:
+            f.write(config)
+        os.chmod(config_path, 0o600)
+        
+        result += "  ✅ msmtp configurado\n\n"
+        
+        # Step 3: Save to DB (encrypted)
+        result += "3️⃣ Guardando en base de datos...\n"
+        
+        encrypted_password = encrypt_value(password)
+        
+        db_path = os.path.join(home, ".config/ai-memory.db")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if exists
+        cursor.execute("SELECT id FROM access_credentials WHERE name = ?", (f"smtp_{domain}",))
+        existing = cursor.fetchone()
+        
+        extra_data = json.dumps({
+            "email": email,
+            "display_name": display_name or username,
+            "tls": tls,
+            "ssl": probe.get("ssl", False)
+        })
+        
+        if existing:
+            cursor.execute("""
+                UPDATE access_credentials 
+                SET host=?, port=?, username=?, password_encrypted=?, extra_data=?, updated_at=CURRENT_TIMESTAMP
+                WHERE name=?
+            """, (smtp_host, smtp_port, email, encrypted_password, extra_data, f"smtp_{domain}"))
+        else:
+            cursor.execute("""
+                INSERT INTO access_credentials (name, credential_type, host, port, username, password_encrypted, extra_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (f"smtp_{domain}", "smtp", smtp_host, smtp_port, email, encrypted_password, extra_data))
+        
+        conn.commit()
+        conn.close()
+        
+        result += "  ✅ Credenciales guardadas (encriptadas)\n\n"
+        
+        # Step 4: Test
+        result += "4️⃣ Probando conexión...\n"
+        
+        test_result = tool_email_test(email)
+        
+        if "enviado" in test_result.lower() or "ok" in test_result.lower():
+            result += f"  ✅ {test_result}\n\n"
+            result += f"🎉 ¡Configuración completada!\n"
+            result += f"   Email: {email}\n"
+            result += f"   SMTP: {smtp_host}:{smtp_port}\n"
+            result += f"   Puedes usar email_send para enviar correos."
+        else:
+            result += f"  ⚠️ {test_result}\n\n"
+            result += "La configuración se guardó pero hubo un error en la prueba."
+        
+        return result
+    
+    except Exception as e:
+        return f"Error en wizard: {e}"
+
+
+def _format_whatsapp_element(element: dict, indent: int = 0) -> str:
+    """Format a single WhatsApp element."""
+    etype = element.get("type", "text")
+    text = element.get("text", "")
+    items = element.get("items", [])
+    url = element.get("url", "")
+    name = element.get("name", "")
+    
+    prefix = "  " * indent
+    
+    if etype == "heading":
+        return f"*{text}*"
+    elif etype == "bold":
+        return f"*{text}*"
+    elif etype == "italic":
+        return f"_{text}_"
+    elif etype == "strikethrough":
+        return f"~{text}~"
+    elif etype == "code":
+        return f"```{text}```"
+    elif etype == "text":
+        return f"{prefix}{text}"
+    elif etype == "emoji":
+        # Common emoji names to unicode
+        emojis = {
+            "check": "✅", "x": "❌", "warning": "⚠️", "star": "⭐",
+            "heart": "❤️", "fire": "🔥", "rocket": "🚀", "thumbsup": "👍",
+            "clap": "👏", "wave": "👋", "sad": "😢", "happy": "😊",
+            "think": "🤔", "eyes": "👀", "100": "💯", "tada": "🎉",
+            "bulb": "💡", "lock": "🔒", "unlock": "🔓", "bell": "🔔",
+            "mail": "📧", "phone": "📞", "calendar": "📅", "clock": "⏰",
+            "gear": "⚙️", "wrench": "🔧", "hammer": "🔨", "key": "🔑",
+            "house": "🏠", "building": "🏢", "globe": "🌍", "link": "🔗",
+            "paperclip": "📎", "memo": "📝", "book": "📖", "lightning": "⚡"
+        }
+        emoji_char = emojis.get(name.lower(), f"[{name}]")
+        return f"{emoji_char}"
+    elif etype == "link":
+        if text:
+            return f"{text}: {url}"
+        return url
+    elif etype == "list":
+        bullets = ["•", "◦", "▪"]
+        result = []
+        for i, item in enumerate(items):
+            if isinstance(item, dict):
+                item_text = item.get("text", "")
+                sub_items = item.get("items", [])
+                bullet = bullets[min(indent, len(bullets) - 1)]
+                result.append(f"{prefix}{bullet} {item_text}")
+                if sub_items:
+                    for sub in sub_items:
+                        if isinstance(sub, dict):
+                            result.append(_format_whatsapp_element(sub, indent + 1))
+                        else:
+                            sub_bullet = bullets[min(indent + 1, len(bullets) - 1)]
+                            result.append(f"{prefix}  {sub_bullet} {sub}")
+            else:
+                bullet = bullets[min(indent, len(bullets) - 1)]
+                result.append(f"{prefix}{bullet} {item}")
+        return "\n".join(result)
+    elif etype == "newline":
+        return ""
+    elif etype == "divider":
+        return "─────────────────"
+    else:
+        return f"{prefix}{text}"
+
+
+def tool_format_whatsapp(elements: list, copy_to_clipboard: bool = True) -> str:
+    """Format text for WhatsApp with rich formatting."""
+    try:
+        lines = []
+        for element in elements:
+            formatted = _format_whatsapp_element(element)
+            lines.append(formatted)
+        
+        result = "\n".join(lines)
+        
+        if copy_to_clipboard:
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=result.encode(),
+                    capture_output=True,
+                    timeout=5
+                )
+            except Exception:
+                pass
+        
+        log_operation("format_whatsapp", {"elements_count": len(elements)}, result[:100])
+        return result
+    
+    except Exception as e:
+        return f"Error formateando: {e}"
+
+
+def tool_whatsapp_link(phone: str, message: str, copy_to_clipboard: bool = True) -> str:
+    """Generate WhatsApp link with pre-filled message."""
+    try:
+        # Clean phone number (remove spaces, dashes, plus)
+        clean_phone = phone.replace(" ", "").replace("-", "").replace("+", "").replace("(", "").replace(")", "")
+        
+        # Ensure it starts with country code
+        if not clean_phone.startswith("52") and len(clean_phone) == 10:
+            clean_phone = "52" + clean_phone
+        
+        # URL encode the message
+        encoded_message = quote(message)
+        
+        # Generate link
+        link = f"https://wa.me/{clean_phone}?text={encoded_message}"
+        
+        if copy_to_clipboard:
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=link.encode(),
+                    capture_output=True,
+                    timeout=5
+                )
+            except Exception:
+                pass
+        
+        result = f"📱 Enlace de WhatsApp:\n{link}\n\n"
+        result += f"📞 Teléfono: {clean_phone}\n"
+        result += f"💬 Mensaje: {message[:50]}{'...' if len(message) > 50 else ''}"
+        
+        log_operation("whatsapp_link", {"phone": clean_phone}, link)
+        return result
+    
+    except Exception as e:
+        return f"Error generando enlace: {e}"
+
+
+def tool_format_email(to: str = None, subject: str = None, greeting: str = None, 
+                      body: str = "", bullets: list = None, signature: str = None,
+                      format: str = "both", copy_to_clipboard: bool = False) -> str:
+    """Compose email body with formatting."""
+    try:
+        result = {}
+        
+        # Build greeting
+        if greeting:
+            saludo = greeting
+        elif to:
+            saludo = f"Hola {to},"
+        else:
+            saludo = ""
+        
+        # Build plain text version
+        plain_lines = []
+        if saludo:
+            plain_lines.append(saludo)
+            plain_lines.append("")
+        
+        plain_lines.append(body)
+        
+        if bullets:
+            plain_lines.append("")
+            for bullet in bullets:
+                plain_lines.append(f"• {bullet}")
+        
+        if signature:
+            plain_lines.append("")
+            plain_lines.append(signature)
+        
+        plain_text = "\n".join(plain_lines)
+        
+        # Build HTML version
+        html_lines = []
+        if saludo:
+            html_lines.append(f"<p>{saludo}</p>")
+        
+        html_lines.append(f"<p>{body}</p>")
+        
+        if bullets:
+            html_lines.append("<ul>")
+            for bullet in bullets:
+                html_lines.append(f"<li>{bullet}</li>")
+            html_lines.append("</ul>")
+        
+        if signature:
+            html_lines.append(f"<p style='color: #666; margin-top: 20px;'>{signature.replace(chr(10), '<br>')}</p>")
+        
+        html_text = "\n".join(html_lines)
+        
+        # Prepare output
+        if format == "plain":
+            result_text = plain_text
+        elif format == "html":
+            result_text = html_text
+        else:  # both
+            result_text = f"=== PLAIN TEXT ===\n{plain_text}\n\n=== HTML ===\n{html_text}"
+        
+        if copy_to_clipboard:
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=plain_text.encode(),
+                    capture_output=True,
+                    timeout=5
+                )
+            except Exception:
+                pass
+        
+        log_operation("format_email", {"to": to, "format": format}, result_text[:100])
+        return result_text
+    
+    except Exception as e:
+        return f"Error formateando email: {e}"
 def _parse_ssh_config() -> dict:
     """Parse ~/.ssh/config into a dict of host aliases."""
     ssh_config_path = os.path.expanduser("~/.ssh/config")
@@ -5380,7 +5987,35 @@ def handle_request(request: dict) -> dict:
                     arguments.get("port", 22),
                     arguments.get("identity_file")
                 ),
-                "ssh_status": lambda: tool_ssh_status(arguments["host"])
+                "ssh_status": lambda: tool_ssh_status(arguments["host"]),
+                # Communication tools
+                "email_discover_settings": lambda: tool_email_discover_settings(
+                    arguments["email"]
+                ),
+                "email_setup_wizard": lambda: tool_email_setup_wizard(
+                    arguments["email"],
+                    arguments["password"],
+                    arguments.get("display_name")
+                ),
+                "format_whatsapp": lambda: tool_format_whatsapp(
+                    arguments["elements"],
+                    arguments.get("copy_to_clipboard", True)
+                ),
+                "whatsapp_link": lambda: tool_whatsapp_link(
+                    arguments["phone"],
+                    arguments["message"],
+                    arguments.get("copy_to_clipboard", True)
+                ),
+                "format_email": lambda: tool_format_email(
+                    arguments.get("to"),
+                    arguments.get("subject"),
+                    arguments.get("greeting"),
+                    arguments["body"],
+                    arguments.get("bullets"),
+                    arguments.get("signature"),
+                    arguments.get("format", "both"),
+                    arguments.get("copy_to_clipboard", False)
+                )
             }
 
             if tool_name not in handlers:
