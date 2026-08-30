@@ -20,7 +20,7 @@ Sistema completo de IA local con GPU NVIDIA, modelos Gemma 4, asistente de voz, 
 ┌─────────────────────────────────────────────────────────────┐
 │  Puerto 9090 — Modelo Principal (12B, GPU, NGL=30)         │
 │  Web UI: http://localhost:9090                              │
-│  CTX=32768, 108 tools MCP                                  │
+│  CTX=32768, 128 tools MCP                                  │
 │  • Razonamiento complejo                                    │
 │  • Delega tools simples → Sub-agente                        │
 └─────────────────────────────────────────────────────────────┘
@@ -229,6 +229,36 @@ Ubicación: `~/llama.cpp/ai-models/`
 - `format_whatsapp` — Formatear texto para WhatsApp (negritas, listas anidadas, emojis)
 - `whatsapp_link` — Generar enlace wa.me con mensaje prellenado
 - `format_email` — Componer cuerpo de email (plain/html/both)
+
+### Web & Internet (7)
+- `browse_web` — Obtener contenido de URL (text/html/json)
+- `http_request` — Cliente HTTP (GET/POST/PUT/DELETE)
+- `search_news` — Buscar noticias (DuckDuckGo)
+- `search_docs` — Buscar documentación técnica
+- `dns_lookup` — Consultas DNS (A/MX/TXT/NS/CNAME)
+- `ssl_check` — Verificar certificado SSL
+- `whois_lookup` — Consulta WHOIS de dominio
+
+### Database (2)
+- `sql_query` — Ejecutar queries SQL en SQLite
+- `backup_database` — Backup de bases de datos SQLite
+
+### Data Processing (7)
+- `csv_to_json` — Convertir CSV a JSON
+- `json_to_csv` — Convertir JSON a CSV
+- `convert_file` — Conversión multi-formato (CSV/JSON/XML/YAML/MD)
+- `extract_pdf` — Extraer texto de PDFs
+- `generate_csv` — Generar CSV desde datos
+- `data_analysis` — Análisis básico de datos
+
+### System & Security (4)
+- `log_analysis` — Analizar logs del sistema
+- `generate_report` — Generar reportes Markdown
+- `security_audit` — Auditoría básica de seguridad
+- `secret_detection` — Escanear código en busca de secretos
+
+### Planning (1)
+- `plan_tasks` — Generar plan de tareas
 
 ## ChatShare
 
