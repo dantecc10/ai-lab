@@ -29,7 +29,6 @@ COMMAND_TIMEOUT = 30
 BLOCKED_COMMANDS = [
     "rm -rf /", "rm -rf /*", "dd if=", "mkfs", "chmod 777",
     "> /dev/sd", ":(){ :|:& };:", "mv / ", "rm -r /home",
-    "shutdown", "reboot", "halt", "init 0", "init 6",
     "rm -rf ~", "rm -rf /root"
 ]
 
@@ -658,6 +657,321 @@ TOOLS = [
                 }
             },
             "required": ["id"]
+        }
+    },
+    {
+        "name": "system_shutdown",
+        "description": "Apaga o reinicia el sistema. REQUIERE CONFIRMACIÓN.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["shutdown", "reboot", "suspend", "hibernate"],
+                    "description": "Acción del sistema."
+                },
+                "delay": {
+                    "type": "integer",
+                    "description": "Delay en segundos (default: 0 = inmediato)."
+                },
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Confirmar acción destructiva."
+                }
+            },
+            "required": ["action"]
+        }
+    },
+    {
+        "name": "file_compress",
+        "description": "Comprime archivos o carpetas en .tar.gz o .zip.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "Ruta del archivo o carpeta a comprimir."
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["tar.gz", "zip"],
+                    "description": "Formato de compresión. Default: tar.gz."
+                }
+            },
+            "required": ["source"]
+        }
+    },
+    {
+        "name": "file_extract",
+        "description": "Extrae archivos comprimidos (.tar.gz, .zip, .tar.bz2).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "Ruta del archivo a extraer."
+                },
+                "destination": {
+                    "type": "string",
+                    "description": "Directorio destino. Default: directorio actual."
+                }
+            },
+            "required": ["source"]
+        }
+    },
+    {
+        "name": "file_permissions",
+        "description": "Cambia permisos de archivos o carpetas.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Ruta del archivo."
+                },
+                "mode": {
+                    "type": "string",
+                    "description": "Permisos en formato octal (ej: '755') o simbólico (ej: '+x')."
+                }
+            },
+            "required": ["path", "mode"]
+        }
+    },
+    {
+        "name": "network_ping",
+        "description": "Hace ping a un host para verificar conectividad.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string",
+                    "description": "Host o IP a hacer ping."
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "Número de paquetes. Default: 4."
+                }
+            },
+            "required": ["host"]
+        }
+    },
+    {
+        "name": "network_ports",
+        "description": "Muestra puertos abiertos en el sistema.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "filter": {
+                    "type": "string",
+                    "description": "Filtrar por estado (LISTEN, ESTABLISHED, etc.)."
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "network_speed",
+        "description": "Mide la velocidad de internet (upload/download).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "network_info",
+        "description": "Muestra información de red: interfaces, IPs, gateway, DNS.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "process_list",
+        "description": "Lista procesos activos del sistema.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "sort_by": {
+                    "type": "string",
+                    "enum": ["cpu", "memory", "pid", "name"],
+                    "description": "Ordenar por. Default: cpu."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Máximo de procesos. Default: 20."
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "process_kill",
+        "description": "Termina un proceso por PID o nombre. REQUIERE CONFIRMACIÓN.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pid": {
+                    "type": "integer",
+                    "description": "PID del proceso a terminar."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Nombre del proceso a terminar."
+                },
+                "signal": {
+                    "type": "string",
+                    "enum": ["TERM", "KILL", "HUP", "INT"],
+                    "description": "Señal a enviar. Default: TERM."
+                },
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Confirmar acción destructiva."
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "process_search",
+        "description": "Busca procesos por nombre.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Nombre o parte del nombre del proceso."
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "cron_list",
+        "description": "Lista tareas programadas (cron jobs) del usuario.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "cron_add",
+        "description": "Agrega una tarea programada (cron job).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "schedule": {
+                    "type": "string",
+                    "description": "Horario en formato cron (ej: '0 */2 * * *' = cada 2 horas)."
+                },
+                "command": {
+                    "type": "string",
+                    "description": "Comando a ejecutar."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Descripción de la tarea."
+                }
+            },
+            "required": ["schedule", "command"]
+        }
+    },
+    {
+        "name": "cron_delete",
+        "description": "Elimina una tarea programada por línea.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "line_number": {
+                    "type": "integer",
+                    "description": "Número de línea del cron job a eliminar."
+                }
+            },
+            "required": ["line_number"]
+        }
+    },
+    {
+        "name": "audio_list_devices",
+        "description": "Lista dispositivos de audio del sistema.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "audio_set_source",
+        "description": "Cambia la fuente de audio (sink).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "sink": {
+                    "type": "string",
+                    "description": "Nombre del sink (dispositivo de salida)."
+                }
+            },
+            "required": ["sink"]
+        }
+    },
+    {
+        "name": "audio_set_source_input",
+        "description": "Cambia la fuente de entrada de audio (source).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "Nombre del source (dispositivo de entrada)."
+                }
+            },
+            "required": ["source"]
+        }
+    },
+    {
+        "name": "monitor_realtime",
+        "description": "Muestra métricas del sistema en tiempo real (una captura).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "string",
+                    "description": "Métricas a mostrar: 'all', 'cpu', 'memory', 'disk', 'network'. Default: all."
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "monitor_top_processes",
+        "description": "Muestra los procesos que más CPU/RAM consumen.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "by": {
+                    "type": "string",
+                    "enum": ["cpu", "memory"],
+                    "description": "Ordenar por CPU o memoria. Default: cpu."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Número de procesos. Default: 10."
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "disk_usage",
+        "description": "Muestra uso de disco en todas las particiones.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "disk_io",
+        "description": "Muestra estadísticas de I/O de disco.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
         }
     }
 ]
@@ -1779,6 +2093,622 @@ def tool_memory_delete(id: int) -> str:
         return f"Error eliminando de memoria: {e}"
 
 
+# ── System Tools ────────────────────────────────────────────
+def tool_system_shutdown(action: str, delay: int = 0, confirm: bool = False) -> str:
+    if not confirm:
+        return f"⚠️ Acción destructiva: {action}. Responde con confirm=true para ejecutar."
+
+    try:
+        if action == "shutdown":
+            cmd = f"shutdown -h +{delay // 60 if delay >= 60 else 0}" if delay > 0 else "shutdown -h now"
+        elif action == "reboot":
+            cmd = f"shutdown -r +{delay // 60 if delay >= 60 else 0}" if delay > 0 else "shutdown -r now"
+        elif action == "suspend":
+            cmd = "systemctl suspend"
+        elif action == "hibernate":
+            cmd = "systemctl hibernate"
+        else:
+            return f"Acción no reconocida: {action}"
+
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        log_operation("system_shutdown", {"action": action}, "executed")
+        return f"✅ {action} ejecutado"
+
+    except Exception as e:
+        return f"Error en {action}: {e}"
+
+
+# ── File Tools ─────────────────────────────────────────────
+def tool_file_compress(source: str, format: str = "tar.gz") -> str:
+    source = safe_path(source)
+    if not os.path.exists(source):
+        return f"Error: No existe: {source}"
+
+    try:
+        base_name = os.path.basename(source)
+        if format == "tar.gz":
+            dest = f"{source}.tar.gz"
+            result = subprocess.run(
+                ["tar", "-czf", dest, "-C", os.path.dirname(source), base_name],
+                capture_output=True, text=True, timeout=60
+            )
+        elif format == "zip":
+            dest = f"{source}.zip"
+            result = subprocess.run(
+                ["zip", "-r", dest, source],
+                capture_output=True, text=True, timeout=60
+            )
+        else:
+            return f"Formato no soportado: {format}"
+
+        if result.returncode != 0:
+            return f"Error comprimiendo: {result.stderr}"
+
+        size = format_size(os.path.getsize(dest))
+        log_operation("file_compress", {"source": source, "format": format}, f"{dest} ({size})")
+        return f"✅ Comprimido: {dest} ({size})"
+
+    except Exception as e:
+        return f"Error comprimiendo: {e}"
+
+
+def tool_file_extract(source: str, destination: str = None) -> str:
+    source = safe_path(source)
+    if not os.path.exists(source):
+        return f"Error: No existe: {source}"
+
+    try:
+        if destination:
+            dest = safe_path(destination)
+            os.makedirs(dest, exist_ok=True)
+        else:
+            dest = os.path.dirname(source)
+
+        if source.endswith(".tar.gz") or source.endswith(".tgz"):
+            result = subprocess.run(
+                ["tar", "-xzf", source, "-C", dest],
+                capture_output=True, text=True, timeout=60
+            )
+        elif source.endswith(".zip"):
+            result = subprocess.run(
+                ["unzip", "-o", source, "-d", dest],
+                capture_output=True, text=True, timeout=60
+            )
+        elif source.endswith(".tar.bz2"):
+            result = subprocess.run(
+                ["tar", "-xjf", source, "-C", dest],
+                capture_output=True, text=True, timeout=60
+            )
+        else:
+            return f"Formato no soportado: {source}"
+
+        if result.returncode != 0:
+            return f"Error extrayendo: {result.stderr}"
+
+        log_operation("file_extract", {"source": source}, f"to {dest}")
+        return f"✅ Extraído en: {dest}"
+
+    except Exception as e:
+        return f"Error extrayendo: {e}"
+
+
+def tool_file_permissions(path: str, mode: str) -> str:
+    path = safe_path(path)
+    if not os.path.exists(path):
+        return f"Error: No existe: {path}"
+
+    try:
+        if mode.startswith("+") or mode.startswith("-"):
+            cmd = f"chmod {mode} {path}"
+        else:
+            cmd = f"chmod {mode} {path}"
+
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+
+        if result.returncode != 0:
+            return f"Error cambiando permisos: {result.stderr}"
+
+        log_operation("file_permissions", {"path": path, "mode": mode}, "changed")
+        return f"✅ Permisos cambiados: {path} → {mode}"
+
+    except Exception as e:
+        return f"Error cambiando permisos: {e}"
+
+
+# ── Network Tools ──────────────────────────────────────────
+def tool_network_ping(host: str, count: int = 4) -> str:
+    try:
+        result = subprocess.run(
+            ["ping", "-c", str(count), host],
+            capture_output=True, text=True, timeout=30
+        )
+
+        if result.returncode != 0:
+            return f"❌ No se pudo hacer ping a {host}"
+
+        lines = result.stdout.strip().split("\n")
+        stats_line = [l for l in lines if "avg" in l]
+        if stats_line:
+            return f"✅ Ping {host}: {stats_line[0]}"
+        return f"✅ Ping {host}: OK"
+
+    except subprocess.TimeoutExpired:
+        return f"⏰ Timeout haciendo ping a {host}"
+    except Exception as e:
+        return f"Error haciendo ping: {e}"
+
+
+def tool_network_ports(filter: str = "LISTEN") -> str:
+    try:
+        result = subprocess.run(
+            ["ss", "-tlnp"],
+            capture_output=True, text=True, timeout=10
+        )
+
+        if result.returncode != 0:
+            return "Error obteniendo puertos"
+
+        lines = result.stdout.strip().split("\n")
+        filtered = [l for l in lines if filter.upper() in l.upper()]
+
+        if not filtered:
+            return f"No hay puertos con estado: {filter}"
+
+        return f"🔌 Puertos ({filter}):\n" + "\n".join(filtered[:20])
+
+    except Exception as e:
+        return f"Error obteniendo puertos: {e}"
+
+
+def tool_network_speed() -> str:
+    try:
+        result = subprocess.run(
+            ["curl", "-s", "-o", "/dev/null", "-w", "%{speed_download}", "https://speed.cloudflare.com/__down?bytes=1000000"],
+            capture_output=True, text=True, timeout=30
+        )
+
+        speed_bps = float(result.stdout) if result.stdout else 0
+        speed_mbps = speed_bps / 1024 / 1024
+
+        return f"🌐 Velocidad de descarga: {speed_mbps:.2f} MB/s"
+
+    except Exception as e:
+        return f"Error midiendo velocidad: {e}"
+
+
+def tool_network_info() -> str:
+    try:
+        info = []
+
+        # Get IP addresses
+        result = subprocess.run(["ip", "-4", "addr", "show"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            for line in result.stdout.split("\n"):
+                if "inet " in line and "127.0.0.1" not in line:
+                    parts = line.split()
+                    for i, p in enumerate(parts):
+                        if p == "inet":
+                            info.append(f"IP: {parts[i+1]}")
+                            break
+
+        # Get gateway
+        result = subprocess.run(["ip", "route", "show", "default"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.split()
+            for i, p in enumerate(parts):
+                if p == "via":
+                    info.append(f"Gateway: {parts[i+1]}")
+                    break
+
+        # Get DNS
+        try:
+            with open("/etc/resolv.conf") as f:
+                for line in f:
+                    if line.startswith("nameserver"):
+                        info.append(f"DNS: {line.split()[1]}")
+        except:
+            pass
+
+        return "🌐 Red:\n" + "\n".join(f"  {i}" for i in info) if info else "No se pudo obtener info de red"
+
+    except Exception as e:
+        return f"Error obteniendo info de red: {e}"
+
+
+# ── Process Tools ──────────────────────────────────────────
+def tool_process_list(sort_by: str = "cpu", limit: int = 20) -> str:
+    try:
+        if sort_by == "cpu":
+            cmd = "ps aux --sort=-%cpu"
+        elif sort_by == "memory":
+            cmd = "ps aux --sort=-%mem"
+        else:
+            cmd = "ps aux"
+
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+
+        if result.returncode != 0:
+            return "Error obteniendo procesos"
+
+        lines = result.stdout.strip().split("\n")
+        header = lines[0]
+        processes = lines[1:limit+1]
+
+        output = [f"📊 Procesos (por {sort_by}):\n"]
+        output.append(f"{'PID':>8} {'CPU%':>6} {'MEM%':>6} {'COMMAND'}")
+        output.append("-" * 50)
+
+        for proc in processes:
+            parts = proc.split(None, 10)
+            if len(parts) >= 11:
+                pid = parts[1]
+                cpu = parts[2]
+                mem = parts[3]
+                cmd = parts[10][:40]
+                output.append(f"{pid:>8} {cpu:>6} {mem:>6} {cmd}")
+
+        return "\n".join(output)
+
+    except Exception as e:
+        return f"Error obteniendo procesos: {e}"
+
+
+def tool_process_kill(pid: int = None, name: str = None, signal: str = "TERM", confirm: bool = False) -> str:
+    if not confirm:
+        target = f"PID {pid}" if pid else f"proceso {name}"
+        return f"⚠️ Acción destructiva: terminar {target} con señal {signal}. Responde con confirm=true."
+
+    try:
+        if pid:
+            cmd = f"kill -{signal} {pid}"
+        elif name:
+            cmd = f"pkill -{signal} {name}"
+        else:
+            return "Error: Se requiere PID o nombre"
+
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+
+        if result.returncode != 0:
+            return f"Error terminando proceso: {result.stderr}"
+
+        target = f"PID {pid}" if pid else f"proceso {name}"
+        log_operation("process_kill", {"pid": pid, "name": name, "signal": signal}, "killed")
+        return f"✅ {target} terminado con señal {signal}"
+
+    except Exception as e:
+        return f"Error terminando proceso: {e}"
+
+
+def tool_process_search(query: str) -> str:
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", query],
+            capture_output=True, text=True, timeout=10
+        )
+
+        if result.returncode != 0:
+            return f"No se encontraron procesos para: {query}"
+
+        pids = result.stdout.strip().split("\n")
+        lines = [f"🔍 Procesos para '{query}' ({len(pids)} encontrados):\n"]
+
+        for pid in pids[:10]:
+            if pid:
+                info = subprocess.run(
+                    ["ps", "-p", pid, "-o", "pid,pcpu,pmem,comm"],
+                    capture_output=True, text=True, timeout=5
+                )
+                if info.returncode == 0:
+                    lines.append(info.stdout.strip())
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Error buscando procesos: {e}"
+
+
+# ── Cron Tools ─────────────────────────────────────────────
+def tool_cron_list() -> str:
+    try:
+        result = subprocess.run(
+            ["crontab", "-l"],
+            capture_output=True, text=True, timeout=5
+        )
+
+        if result.returncode != 0:
+            return "No hay tareas programadas"
+
+        lines = result.stdout.strip().split("\n")
+        lines = [l for l in lines if l.strip() and not l.startswith("#")]
+
+        if not lines:
+            return "No hay tareas programadas"
+
+        output = [f"📅 Tareas programadas ({len(lines)}):\n"]
+        for i, line in enumerate(lines, 1):
+            output.append(f"  {i}. {line}")
+
+        return "\n".join(output)
+
+    except Exception as e:
+        return f"Error listando cron jobs: {e}"
+
+
+def tool_cron_add(schedule: str, command: str, description: str = None) -> str:
+    try:
+        cron_line = f"{schedule} {command}"
+        if description:
+            cron_line = f"# {description}\n{schedule} {command}"
+
+        result = subprocess.run(
+            ["crontab", "-l"],
+            capture_output=True, text=True, timeout=5
+        )
+
+        existing = result.stdout if result.returncode == 0 else ""
+        new_crontab = existing + "\n" + cron_line + "\n"
+
+        proc = subprocess.run(
+            ["crontab", "-"],
+            input=new_crontab,
+            capture_output=True, text=True, timeout=5
+        )
+
+        if proc.returncode != 0:
+            return f"Error agregando cron job: {proc.stderr}"
+
+        log_operation("cron_add", {"schedule": schedule, "command": command}, "added")
+        return f"✅ Cron job agregado: {schedule} → {command}"
+
+    except Exception as e:
+        return f"Error agregando cron job: {e}"
+
+
+def tool_cron_delete(line_number: int) -> str:
+    try:
+        result = subprocess.run(
+            ["crontab", "-l"],
+            capture_output=True, text=True, timeout=5
+        )
+
+        if result.returncode != 0:
+            return "No hay tareas programadas"
+
+        lines = result.stdout.strip().split("\n")
+        active_lines = [l for l in lines if l.strip() and not l.startswith("#")]
+
+        if line_number < 1 or line_number > len(active_lines):
+            return f"Error: Número de línea inválido (1-{len(active_lines)})"
+
+        line_to_delete = active_lines[line_number - 1]
+
+        new_lines = []
+        for line in lines:
+            if line.strip() == line_to_delete.strip():
+                continue
+            new_lines.append(line)
+
+        new_crontab = "\n".join(new_lines) + "\n"
+
+        proc = subprocess.run(
+            ["crontab", "-"],
+            input=new_crontab,
+            capture_output=True, text=True, timeout=5
+        )
+
+        if proc.returncode != 0:
+            return f"Error eliminando cron job: {proc.stderr}"
+
+        log_operation("cron_delete", {"line_number": line_number}, "deleted")
+        return f"✅ Cron job eliminado: {line_to_delete}"
+
+    except Exception as e:
+        return f"Error eliminando cron job: {e}"
+
+
+# ── Audio Tools ────────────────────────────────────────────
+def tool_audio_list_devices() -> str:
+    try:
+        result = subprocess.run(
+            ["pactl", "list", "sinks", "short"],
+            capture_output=True, text=True, timeout=5
+        )
+
+        output = ["🔊 Dispositivos de salida:\n"]
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if line.strip():
+                    parts = line.split()
+                    output.append(f"  • {parts[1]} (State: {parts[2]})")
+
+        result = subprocess.run(
+            ["pactl", "list", "sources", "short"],
+            capture_output=True, text=True, timeout=5
+        )
+
+        output.append("\n🎤 Dispositivos de entrada:\n")
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if line.strip():
+                    parts = line.split()
+                    output.append(f"  • {parts[1]} (State: {parts[2]})")
+
+        return "\n".join(output)
+
+    except Exception as e:
+        return f"Error listando dispositivos de audio: {e}"
+
+
+def tool_audio_set_source(sink: str) -> str:
+    try:
+        result = subprocess.run(
+            ["pactl", "set-default-sink", sink],
+            capture_output=True, text=True, timeout=5
+        )
+
+        if result.returncode != 0:
+            return f"Error cambiando sink: {result.stderr}"
+
+        log_operation("audio_set_source", {"sink": sink}, "changed")
+        return f"✅ Sink cambiado a: {sink}"
+
+    except Exception as e:
+        return f"Error cambiando sink: {e}"
+
+
+def tool_audio_set_source_input(source: str) -> str:
+    try:
+        result = subprocess.run(
+            ["pactl", "set-default-source", source],
+            capture_output=True, text=True, timeout=5
+        )
+
+        if result.returncode != 0:
+            return f"Error cambiando source: {result.stderr}"
+
+        log_operation("audio_set_source_input", {"source": source}, "changed")
+        return f"✅ Source cambiado a: {source}"
+
+    except Exception as e:
+        return f"Error cambiando source: {e}"
+
+
+# ── Monitoring Tools ───────────────────────────────────────
+def tool_monitor_realtime(metrics: str = "all") -> str:
+    try:
+        output = ["📊 Métricas del sistema:\n"]
+
+        if metrics in ["all", "cpu"]:
+            with open("/proc/loadavg") as f:
+                load = f.read().split()[:3]
+                output.append(f"  CPU Load: {' '.join(load)}")
+
+            with open("/proc/stat") as f:
+                cpu = f.readline().split()
+                idle = int(cpu[4])
+                total = sum(int(x) for x in cpu[1:])
+                usage = round((1 - idle/total) * 100, 1)
+                output.append(f"  CPU Usage: {usage}%")
+
+        if metrics in ["all", "memory"]:
+            result = subprocess.run(["free", "-m"], capture_output=True, text=True, timeout=5)
+            for line in result.stdout.split("\n"):
+                if line.startswith("Mem:"):
+                    parts = line.split()
+                    total = int(parts[1])
+                    used = int(parts[2])
+                    usage = round(used/total*100, 1)
+                    output.append(f"  Memory: {used}MB / {total}MB ({usage}%)")
+                    break
+
+        if metrics in ["all", "disk"]:
+            result = subprocess.run(["df", "-h", "/"], capture_output=True, text=True, timeout=5)
+            lines = result.stdout.strip().split("\n")
+            if len(lines) > 1:
+                parts = lines[1].split()
+                output.append(f"  Disk: {parts[2]} / {parts[1]} ({parts[4]})")
+
+        if metrics in ["all", "network"]:
+            with open("/proc/net/dev") as f:
+                for line in f:
+                    if "eth0" in line or "wlan0" in line:
+                        parts = line.split()
+                        rx = int(parts[1]) / 1024 / 1024
+                        tx = int(parts[9]) / 1024 / 1024
+                        output.append(f"  Network: RX={rx:.1f}MB TX={tx:.1f}MB")
+                        break
+
+        return "\n".join(output)
+
+    except Exception as e:
+        return f"Error obteniendo métricas: {e}"
+
+
+def tool_monitor_top_processes(by: str = "cpu", limit: int = 10) -> str:
+    try:
+        if by == "cpu":
+            cmd = "ps aux --sort=-%cpu"
+        else:
+            cmd = "ps aux --sort=-%mem"
+
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+
+        if result.returncode != 0:
+            return "Error obteniendo procesos"
+
+        lines = result.stdout.strip().split("\n")
+        processes = lines[1:limit+1]
+
+        output = [f"📊 Top {limit} procesos por {by}:\n"]
+        output.append(f"{'PID':>8} {'CPU%':>6} {'MEM%':>6} {'COMMAND'}")
+        output.append("-" * 50)
+
+        for proc in processes:
+            parts = proc.split(None, 10)
+            if len(parts) >= 11:
+                pid = parts[1]
+                cpu = parts[2]
+                mem = parts[3]
+                cmd = parts[10][:35]
+                output.append(f"{pid:>8} {cpu:>6} {mem:>6} {cmd}")
+
+        return "\n".join(output)
+
+    except Exception as e:
+        return f"Error obteniendo top procesos: {e}"
+
+
+def tool_disk_usage() -> str:
+    try:
+        result = subprocess.run(
+            ["df", "-h", "--output=source,size,used,avail,pcent,target"],
+            capture_output=True, text=True, timeout=10
+        )
+
+        if result.returncode != 0:
+            return "Error obteniendo uso de disco"
+
+        lines = result.stdout.strip().split("\n")
+        output = ["💾 Uso de disco:\n"]
+        output.append(lines[0])  # Header
+
+        for line in lines[1:]:
+            if line.startswith("/dev/"):
+                output.append(line)
+
+        return "\n".join(output)
+
+    except Exception as e:
+        return f"Error obteniendo uso de disco: {e}"
+
+
+def tool_disk_io() -> str:
+    try:
+        result = subprocess.run(
+            ["iostat", "-d", "1", "1"],
+            capture_output=True, text=True, timeout=10
+        )
+
+        if result.returncode != 0:
+            return "Error obteniendo I/O de disco"
+
+        lines = result.stdout.strip().split("\n")
+        output = ["💿 I/O de Disco:\n"]
+
+        for line in lines:
+            if line and not line.startswith("Linux") and not line.startswith("Device"):
+                parts = line.split()
+                if len(parts) >= 4:
+                    output.append(f"  {parts[0]}: Read={parts[1]} KB/s, Write={parts[2]} KB/s")
+
+        return "\n".join(output) if len(output) > 1 else "No hay datos de I/O disponibles"
+
+    except FileNotFoundError:
+        return "Error: iostat no instalado (instalar sysstat)"
+    except Exception as e:
+        return f"Error obteniendo I/O: {e}"
+
+
 E4B_URL = "http://localhost:9091/v1/chat/completions"
 E4B_MODEL = "/home/darkseid/llama.cpp/ai-models/google_gemma-4-E4B-it-Q4_K_M.gguf"
 
@@ -1993,7 +2923,63 @@ def handle_request(request: dict) -> dict:
                 "memory_list": lambda: tool_memory_list(
                     arguments.get("limit", 20)
                 ),
-                "memory_delete": lambda: tool_memory_delete(arguments["id"])
+                "memory_delete": lambda: tool_memory_delete(arguments["id"]),
+                "system_shutdown": lambda: tool_system_shutdown(
+                    arguments["action"],
+                    arguments.get("delay", 0),
+                    arguments.get("confirm", False)
+                ),
+                "file_compress": lambda: tool_file_compress(
+                    arguments["source"],
+                    arguments.get("format", "tar.gz")
+                ),
+                "file_extract": lambda: tool_file_extract(
+                    arguments["source"],
+                    arguments.get("destination")
+                ),
+                "file_permissions": lambda: tool_file_permissions(
+                    arguments["path"],
+                    arguments["mode"]
+                ),
+                "network_ping": lambda: tool_network_ping(
+                    arguments["host"],
+                    arguments.get("count", 4)
+                ),
+                "network_ports": lambda: tool_network_ports(
+                    arguments.get("filter", "LISTEN")
+                ),
+                "network_speed": lambda: tool_network_speed(),
+                "network_info": lambda: tool_network_info(),
+                "process_list": lambda: tool_process_list(
+                    arguments.get("sort_by", "cpu"),
+                    arguments.get("limit", 20)
+                ),
+                "process_kill": lambda: tool_process_kill(
+                    arguments.get("pid"),
+                    arguments.get("name"),
+                    arguments.get("signal", "TERM"),
+                    arguments.get("confirm", False)
+                ),
+                "process_search": lambda: tool_process_search(arguments["query"]),
+                "cron_list": lambda: tool_cron_list(),
+                "cron_add": lambda: tool_cron_add(
+                    arguments["schedule"],
+                    arguments["command"],
+                    arguments.get("description")
+                ),
+                "cron_delete": lambda: tool_cron_delete(arguments["line_number"]),
+                "audio_list_devices": lambda: tool_audio_list_devices(),
+                "audio_set_source": lambda: tool_audio_set_source(arguments["sink"]),
+                "audio_set_source_input": lambda: tool_audio_set_source_input(arguments["source"]),
+                "monitor_realtime": lambda: tool_monitor_realtime(
+                    arguments.get("metrics", "all")
+                ),
+                "monitor_top_processes": lambda: tool_monitor_top_processes(
+                    arguments.get("by", "cpu"),
+                    arguments.get("limit", 10)
+                ),
+                "disk_usage": lambda: tool_disk_usage(),
+                "disk_io": lambda: tool_disk_io()
             }
 
             if tool_name not in handlers:
