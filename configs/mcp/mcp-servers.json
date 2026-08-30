@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "kasa": {
+      "command": "/home/darkseid/scripting/gpu-tools/skills/.venv/bin/python3",
+      "args": ["/home/darkseid/scripting/gpu-tools/skills/kasa_mcp_server.py"]
+    },
+    "system": {
+      "command": "/home/darkseid/scripting/gpu-tools/skills/.venv/bin/python3",
+      "args": ["/home/darkseid/scripting/gpu-tools/skills/system_mcp_server.py"]
+    }
+  }
+}

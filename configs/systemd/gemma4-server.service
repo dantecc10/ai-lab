@@ -1,0 +1,47 @@
+[Unit]
+Description=Gemma 4 AI Server (llama.cpp)
+After=network.target nvidia-persistenced.service
+Wants=nvidia-persistenced.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/home/darkseid/.config/gemma4-server.conf
+ExecStart=/bin/bash -c '\
+  . /home/darkseid/.config/gemma4-server.conf; \
+  if [ "$USE_SWAP" = "true" ] && [ "$SWAP_AGGRESSIVE" = "true" ]; then \
+    CTX=${CTX_SIZE_AGGRESSIVE:-65536}; \
+    if [ "$SWAP_WARN" = "true" ]; then \
+      echo "⚠️ Modo swap AGRESIVO: CTX=$CTX (~28GB RAM+Swap)"; \
+      echo "La hibernación NO estará disponible"; \
+    fi; \
+  elif [ "$USE_SWAP" = "true" ]; then \
+    CTX=${CTX_SIZE_SWAP:-32768}; \
+    if [ "$SWAP_WARN" = "true" ]; then \
+      echo "Modo swap NORMAL: CTX=$CTX (~14GB RAM+Swap)"; \
+      echo "La hibernación estará limitada"; \
+    fi; \
+  else \
+    CTX=${CTX_SIZE_NORMAL:-16384}; \
+  fi; \
+  exec /home/darkseid/llama.cpp/build/bin/llama-server \
+    -m "${MODEL_PATH}" \
+    -ngl ${NGL:-40} \
+    --host ${HOST:-0.0.0.0} \
+    --port ${PORT:-9090} \
+    --ctx-size $CTX \
+    --jinja \
+    --chat-template-file /home/darkseid/llama.cpp/models/templates/google-gemma-4-31B-it.jinja \
+    --webui-mcp-proxy \
+    --mcp-servers-config /home/darkseid/.config/mcp-servers.json \
+    --temp 0.95 \
+    --top-p 0.95 \
+    --top-k 64 \
+    --log-disable \
+    ${EXTRA_ARGS:-}'
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

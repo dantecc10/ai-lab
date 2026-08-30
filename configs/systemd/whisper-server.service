@@ -1,0 +1,14 @@
+[Unit]
+Description=Whisper API Server (Speech-to-Text)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/darkseid/scripting/gpu-tools/skills/whisper_server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

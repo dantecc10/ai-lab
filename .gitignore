@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temp files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Models (too large for git)
+*.gguf
+*.bin
+*.onnx
+
+# Audio files
+*.wav
+*.mp3
+*.ogg
+*.flac
+
+# Docker
+docker-compose.override.yml
+
+# Secrets
+.env
+.env.local
+*_secret*
+*_key*
+
+# Large files
+*.tar.gz
+*.zip
+*.rar
+
+# CUDA build artifacts
+*.o
+*.obj

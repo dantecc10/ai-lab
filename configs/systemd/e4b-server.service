@@ -1,0 +1,28 @@
+[Unit]
+Description=E4B Sub-agent Server (llama.cpp)
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/home/darkseid/.config/e4b-server.conf
+ExecStart=/bin/bash -c '\
+  . /home/darkseid/.config/e4b-server.conf; \
+  exec /home/darkseid/llama.cpp/build/bin/llama-server \
+    -m "${MODEL_PATH}" \
+    -ngl ${NGL:-0} \
+    --host ${HOST:-0.0.0.0} \
+    --port ${PORT:-9091} \
+    --ctx-size ${CTX_SIZE:-8192} \
+    --jinja \
+    --chat-template-file /home/darkseid/llama.cpp/models/templates/google-gemma-4-31B-it.jinja \
+    --temp 0.7 \
+    --top-p 0.9 \
+    --log-disable \
+    ${EXTRA_ARGS:-}'
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
