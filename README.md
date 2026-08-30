@@ -399,6 +399,79 @@ systemctl --user start chatmanager.service
 
 ## Requisitos Previos
 
+## Quickstart (rápido)
+
+Sigue estos pasos para poner en marcha el sistema básico en una máquina local:
+
+1. Clona el repositorio y sitúate en la carpeta del proyecto:
+
+```bash
+git clone git@github.com:dantecc10/ai-lab.git ~/ai-lab
+cd ~/ai-lab
+```
+
+2. Copia las configuraciones a tu usuario (ajusta rutas según tu sistema):
+
+```bash
+mkdir -p ~/.config && cp configs/gemma4-server.conf ~/.config/
+cp configs/e4b-server.conf ~/.config/
+cp configs/system-prompt.txt ~/.config/
+cp configs/mcp/mcp-servers.json ~/.config/
+```
+
+3. Prepara los scripts y entornos auxiliares:
+
+```bash
+mkdir -p ~/scripting/gpu-tools && cp scripts/llama/* ~/scripting/gpu-tools/
+cd deploy/chatshare && python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+4. Recarga `systemd` de usuario y arranca los servicios principales:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user start gemma4-server.service e4b-server.service whisper-server.service chatmanager.service
+```
+
+5. Verifica que los servicios estén accesibles (puertos principales):
+
+- Modelo principal: http://localhost:9090
+- Sub-agente E4B: http://localhost:9091
+- Open WebUI: http://localhost:9092
+- Whisper STT: http://localhost:9093
+- ChatShare: http://localhost:9095
+
+---
+
+## Contribuir
+
+Gracias por querer contribuir. Para colaborar con la documentación o el código sigue estos pasos:
+
+1. Haz fork del repositorio y crea una rama con un nombre descriptivo:
+
+```bash
+git checkout -b docs/actualizar-README
+```
+
+2. Realiza cambios pequeños y atómicos en la documentación dentro de la carpeta `docs/` o en `README.md`.
+
+3. Añade pruebas o instrucciones reproducibles si cambias scripts o despliegues.
+
+4. Haz commit con un mensaje claro y empuja tu rama:
+
+```bash
+git add docs/ README.md
+git commit -m "docs: actualizar Quickstart y guía de contribución"
+git push origin HEAD
+```
+
+5. Abre un Pull Request describiendo los cambios y el motivo. Si el cambio afecta a la operación del sistema, indica cómo probarlo localmente.
+
+---
+
+Para más detalles sobre problemas conocidos y soluciones, consulta el directorio `docs/`.
+
 ### Sistema
 ```bash
 # NVIDIA drivers

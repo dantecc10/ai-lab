@@ -12,7 +12,7 @@ Historial de cambios y mejoras del sistema AI Lab.
 - Sub-agente E4B (puerto 9091) en CPU
 - Open WebUI (puerto 9092)
 - Whisper STT (puerto 9093)
-- 39 tools MCP:
+- 94 tools MCP:
   - Smart Home (Kasa): 2 tools
   - Sistema: 15 tools
   - Navegador: 3 tools

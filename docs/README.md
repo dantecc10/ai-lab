@@ -1,6 +1,8 @@
 # GPU Tools & Gemma 4 AI Server
 
-Suite completa para gestión de GPU NVIDIA, servidor de IA local con Gemma 4, sistema de memoria persistente y 39 tools MCP.
+Suite completa para gestión de GPU NVIDIA, servidor de IA local con Gemma 4, sistema de memoria persistente y 94 tools MCP.
+
+Consulta la sección "Quickstart" en el `README.md` para pasos rápidos de instalación y puesta en marcha.
 
 ## Hardware
 
@@ -21,7 +23,7 @@ Suite completa para gestión de GPU NVIDIA, servidor de IA local con Gemma 4, si
 ┌─────────────────────────────────────────────────────────────┐
 │  Puerto 9090 — Modelo Principal (12B, GPU, NGL=30)         │
 │  Web UI: http://localhost:9090                              │
-│  CTX=32768, 39 tools MCP                                   │
+│  CTX=32768, 94 tools MCP                                   │
 │  • Razonamiento complejo                                    │
 │  • Delega tools simples → Sub-agente                        │
 │  • "Hazlo tú mismo" → ejecuta directamente                  │
@@ -76,7 +78,7 @@ Suite completa para gestión de GPU NVIDIA, servidor de IA local con Gemma 4, si
 │   ├── gemma4-ctl.sh           # Control del servidor principal
 │   ├── e4b-ctl.sh              # Control del sub-agente
 │   ├── skills/                 # Tools MCP y asistente
-│   │   ├── system_mcp_server.py    # 39 tools MCP
+│   │   ├── system_mcp_server.py    # 94 tools MCP
 │   │   ├── kasa_mcp_server.py      # Tools Kasa
 │   │   ├── assistant.py            # LLM + tool calling + TTS
 │   │   ├── voice_hub.py            # Wake word + push-to-talk
