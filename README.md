@@ -20,7 +20,7 @@ Sistema completo de IA local con GPU NVIDIA, modelos Gemma 4, asistente de voz, 
 ┌─────────────────────────────────────────────────────────────┐
 │  Puerto 9090 — Modelo Principal (12B, GPU, NGL=30)         │
 │  Web UI: http://localhost:9090                              │
-│  CTX=32768, 133 tools MCP                                  │
+│  CTX=32768, 138 tools MCP                                  │
 │  • Razonamiento complejo                                    │
 │  • Delega tools simples → Sub-agente                        │
 └─────────────────────────────────────────────────────────────┘
@@ -265,6 +265,13 @@ Ubicación: `~/llama.cpp/ai-models/`
 
 ### Planning (1)
 - `plan_tasks` — Generar plan de tareas
+
+### OSINT (5)
+- `osint_username` — Buscar username en 3300+ plataformas (maigret/sherlock)
+- `osint_email` — Investigar email para encontrar cuentas (holehe)
+- `osint_domain` — Inteligencia de dominio (DNS, WHOIS, subdominios)
+- `osint_ip` — Inteligencia de IP (geolocalización, ASN, reverse DNS)
+- `osint_person` — Buscar persona por nombre en múltiples plataformas
 
 ## ChatShare
 
