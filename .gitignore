@@ -64,3 +64,6 @@ docker-compose.override.yml
 # CUDA build artifacts
 *.o
 *.obj
+
+# Shared chats (user data)
+shared-chats/

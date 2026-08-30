@@ -1565,6 +1565,46 @@ TOOLS = [
             "type": "object",
             "properties": {}
         }
+    },
+    {
+        "name": "chat_export",
+        "description": "Exporta una conversación y genera enlace para compartir con QR.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "string",
+                    "description": "Mensajes en formato JSON: [{\"role\":\"user\",\"content\":\"...\"},...]"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Título del chat (opcional)."
+                }
+            },
+            "required": ["messages"]
+        }
+    },
+    {
+        "name": "chat_list_shared",
+        "description": "Lista todos los chats exportados/compartidos.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "chat_get_shared",
+        "description": "Obtiene un chat compartido por su ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chat_id": {
+                    "type": "string",
+                    "description": "ID del chat compartido."
+                }
+            },
+            "required": ["chat_id"]
+        }
     }
 ]
 
@@ -3985,6 +4025,138 @@ def tool_docker_images() -> str:
     return f"🐳 Imágenes:\n{output}"
 
 
+# ── Chat Export Tools ──────────────────────────────────────
+CHAT_SHARE_DIR = os.path.join(HOME, "ai-lab/shared-chats")
+CHAT_SHARE_URL = "http://localhost:9094"
+
+
+def tool_chat_export(messages: str, title: str = None) -> str:
+    try:
+        msg_list = json.loads(messages)
+        if not isinstance(msg_list, list):
+            return "Error: messages debe ser un array de objetos"
+
+        import secrets
+        chat_id = secrets.token_urlsafe(8)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        if not title:
+            title = f"Chat_{timestamp}"
+
+        chat_data = {
+            "id": chat_id,
+            "title": title,
+            "created_at": datetime.now().isoformat(),
+            "messages": msg_list
+        }
+
+        os.makedirs(CHAT_SHARE_DIR, exist_ok=True)
+
+        # Save JSON
+        json_path = os.path.join(CHAT_SHARE_DIR, f"{chat_id}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(chat_data, f, ensure_ascii=False, indent=2)
+
+        # Save Markdown
+        md_path = os.path.join(CHAT_SHARE_DIR, f"{chat_id}.md")
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(f"# {title}\n\n")
+            f.write(f"*Exportado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n---\n\n")
+            for msg in msg_list:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                if role == "user":
+                    f.write(f"## 👤 Usuario\n\n{content}\n\n")
+                elif role == "assistant":
+                    f.write(f"## 🤖 Asistente\n\n{content}\n\n")
+                f.write("---\n\n")
+
+        share_url = f"{CHAT_SHARE_URL}/chat/{chat_id}"
+
+        log_operation("chat_export", {"title": title}, f"{len(msg_list)} messages")
+        return (
+            f"✅ Chat exportado: {title}\n\n"
+            f"📎 Enlace: {share_url}\n"
+            f"📄 JSON: {json_path}\n"
+            f"📝 Markdown: {md_path}\n"
+            f"🔢 ID: {chat_id}\n"
+            f"💬 Mensajes: {len(msg_list)}"
+        )
+
+    except json.JSONDecodeError:
+        return "Error: messages no es JSON válido"
+    except Exception as e:
+        return f"Error exportando chat: {e}"
+
+
+def tool_chat_list_shared() -> str:
+    try:
+        if not os.path.exists(CHAT_SHARE_DIR):
+            return "No hay chats compartidos"
+
+        chats = []
+        for filename in os.listdir(CHAT_SHARE_DIR):
+            if filename.endswith(".json"):
+                filepath = os.path.join(CHAT_SHARE_DIR, filename)
+                try:
+                    with open(filepath) as f:
+                        data = json.load(f)
+                    chats.append({
+                        "id": data.get("id"),
+                        "title": data.get("title"),
+                        "created_at": data.get("created_at"),
+                        "messages_count": len(data.get("messages", []))
+                    })
+                except:
+                    pass
+
+        if not chats:
+            return "No hay chats compartidos"
+
+        chats.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+        lines = [f"📋 Chats compartidos ({len(chats)}):\n"]
+        for c in chats:
+            url = f"{CHAT_SHARE_URL}/chat/{c['id']}"
+            lines.append(f"  📝 {c['title']}")
+            lines.append(f"     {c['messages_count']} mensajes | {c['created_at'][:10]}")
+            lines.append(f"     🔗 {url}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Error listando chats: {e}"
+
+
+def tool_chat_get_shared(chat_id: str) -> str:
+    try:
+        filepath = os.path.join(CHAT_SHARE_DIR, f"{chat_id}.json")
+        if not os.path.exists(filepath):
+            return f"Error: Chat no encontrado: {chat_id}"
+
+        with open(filepath) as f:
+            data = json.load(f)
+
+        lines = [f"📝 {data.get('title', 'Chat')}\n"]
+        lines.append(f"📅 {data.get('created_at', 'N/A')[:19]}")
+        lines.append(f"💬 {len(data.get('messages', []))} mensajes\n")
+
+        for msg in data.get("messages", []):
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")[:200]
+            icon = "👤" if role == "user" else "🤖"
+            lines.append(f"{icon} {role}: {content}")
+
+        url = f"{CHAT_SHARE_URL}/chat/{chat_id}"
+        lines.append(f"\n🔗 Enlace: {url}")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Error obteniendo chat: {e}"
+
+
 E4B_URL = "http://localhost:9091/v1/chat/completions"
 E4B_MODEL = "/home/darkseid/llama.cpp/ai-models/google_gemma-4-E4B-it-Q4_K_M.gguf"
 
@@ -4372,7 +4544,13 @@ def handle_request(request: dict) -> dict:
                     arguments["container"],
                     arguments.get("lines", 50)
                 ),
-                "docker_images": lambda: tool_docker_images()
+                "docker_images": lambda: tool_docker_images(),
+                "chat_export": lambda: tool_chat_export(
+                    arguments["messages"],
+                    arguments.get("title")
+                ),
+                "chat_list_shared": lambda: tool_chat_list_shared(),
+                "chat_get_shared": lambda: tool_chat_get_shared(arguments["chat_id"])
             }
 
             if tool_name not in handlers:
