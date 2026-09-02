@@ -1,0 +1,76 @@
+name: CI & Quality Assurance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-tests:
+    name: Python Unit Tests & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pytest
+          if [ -f deploy/chatshare/requirements.txt ]; then pip install -r deploy/chatshare/requirements.txt; fi
+
+      - name: Lint with Ruff (Fatal & Syntax Errors)
+        run: |
+          ruff check scripts/tools/mcp_common/ scripts/tools/mcp_domain/ scripts/tools/mcp_server.py --select E9,F63,F7,F82 --output-format=grouped
+
+      - name: Verify MCP Module Imports
+        env:
+          PYTHONPATH: .:scripts/tools
+        run: |
+          python -c "from scripts.tools.mcp_common.security import is_safe_url, sanitize_path; print('mcp_common.security OK')"
+          python -c "from scripts.tools.mcp_common.logging import log_operation; print('mcp_common.logging OK')"
+          python -c "from scripts.tools.mcp_common.audit import init_audit_db, record_tool_call, get_metrics; print('mcp_common.audit OK')"
+          python -c "from scripts.tools.mcp_domain import load_all_domains; tools, handlers = load_all_domains(); print(f'{len(tools)} tools, {len(handlers)} handlers loaded')"
+
+      - name: Run Unit Tests with Pytest
+        env:
+          PYTHONPATH: .:scripts/tools
+        run: |
+          pytest tests/ -v
+
+  shell-check:
+    name: Shell Scripts Lint (ShellCheck)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          severity: warning
+          ignore_paths: ".venv deploy/chatshare/.venv"
+
+  docker-build-test:
+    name: ChatShare Docker Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ChatShare Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./deploy/chatshare
+          push: false
+          tags: chatshare:ci-test
