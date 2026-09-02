@@ -1,5 +1,5 @@
 # ChatShare VPS - Docker Compose
-# Este archivo va en el VPS: ~/chatshare/deploy/docker-compose.yml
+# Despliegue en VPS: /opt/ai-chat/deploy/chatshare/docker-compose.yml
 
 services:
   chatshare:
@@ -7,10 +7,11 @@ services:
     container_name: chatshare
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8001:8000"
+      - "127.0.0.1:9095:8000"
     volumes:
       - chatshare_data:/app/data
     environment:
+      - DB_PATH=/app/data/chats.db
       - DATABASE_URL=sqlite+aiosqlite:///app/data/chats.db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
