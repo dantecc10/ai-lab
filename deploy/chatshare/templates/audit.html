@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Lab — Audit Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e1e4e8; }
+        .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 20px; color: #58a6ff; }
+        .header select { background: #21262d; color: #e1e4e8; border: 1px solid #30363d; padding: 6px 12px; border-radius: 6px; }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 24px; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
+        .card h3 { font-size: 13px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .card .value { font-size: 28px; font-weight: 700; color: #e1e4e8; }
+        .card .value.green { color: #3fb950; }
+        .card .value.red { color: #f85149; }
+        .card .value.blue { color: #58a6ff; }
+        .charts { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; padding: 0 24px 24px; }
+        .chart-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
+        .chart-card h3 { font-size: 14px; color: #8b949e; margin-bottom: 16px; }
+        .tables { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 24px 24px; }
+        .table-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; overflow-x: auto; }
+        .table-card h3 { font-size: 14px; color: #8b949e; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; padding: 8px 12px; border-bottom: 1px solid #30363d; color: #8b949e; font-weight: 600; }
+        td { padding: 8px 12px; border-bottom: 1px solid #21262d; }
+        tr:hover { background: #1c2128; }
+        .badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .badge.ok { background: #238636; color: #fff; }
+        .badge.err { background: #da3633; color: #fff; }
+        .badge.warn { background: #9e6a03; color: #fff; }
+        .badge.info { background: #1f6feb; color: #fff; }
+        .error-msg { color: #f85149; font-size: 12px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .loading { text-align: center; padding: 40px; color: #8b949e; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔍 AI Lab — Audit Dashboard</h1>
+        <select id="period" onchange="loadAll()">
+            <option value="1">Última hora</option>
+            <option value="6">Últimas 6 horas</option>
+            <option value="24" selected>Últimas 24 horas</option>
+            <option value="168">Última semana</option>
+        </select>
+    </div>
+
+    <div class="grid" id="stats">
+        <div class="card"><h3>Total Llamadas</h3><div class="value blue" id="stat-total">—</div></div>
+        <div class="card"><h3>Success Rate</h3><div class="value green" id="stat-rate">—</div></div>
+        <div class="card"><h3>Duración Promedio</h3><div class="value" id="stat-avg">—</div></div>
+        <div class="card"><h3>Duración Máxima</h3><div class="value red" id="stat-max">—</div></div>
+    </div>
+
+    <div class="charts">
+        <div class="chart-card">
+            <h3>Llamadas por Hora</h3>
+            <canvas id="chartTimeline"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>Top 10 Tools</h3>
+            <canvas id="chartTop"></canvas>
+        </div>
+    </div>
+
+    <div class="tables">
+        <div class="table-card">
+            <h3>Últimas Llamadas</h3>
+            <table>
+                <thead><tr><th>Tool</th><th>Duración</th><th>Estado</th><th>Error</th></tr></thead>
+                <tbody id="tb-recent"></tbody>
+            </table>
+        </div>
+        <div class="table-card">
+            <h3>Eventos de Seguridad</h3>
+            <table>
+                <thead><tr><th>Tipo</th><th>Tool</th><th>Detalles</th></tr></thead>
+                <tbody id="tb-security"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let timelineChart, topChart;
+
+        async function loadAll() {
+            const h = document.getElementById('period').value;
+            const [metrics, recent, security] = await Promise.all([
+                fetch(`/audit/api/metrics?hours=${h}`).then(r => r.json()),
+                fetch(`/audit/api/recent?limit=15`).then(r => r.json()),
+                fetch(`/audit/api/security?limit=10`).then(r => r.json()),
+            ]);
+
+            document.getElementById('stat-total').textContent = metrics.total_calls.toLocaleString();
+            document.getElementById('stat-rate').textContent = metrics.success_rate_pct + '%';
+            document.getElementById('stat-avg').textContent = metrics.avg_duration_ms.toFixed(1) + ' ms';
+            document.getElementById('stat-max').textContent = metrics.max_duration_ms.toFixed(1) + ' ms';
+
+            renderTimeline(metrics.hourly || []);
+            renderTop(metrics.top_tools || []);
+            renderRecent(recent);
+            renderSecurity(security);
+        }
+
+        function renderTimeline(hourly) {
+            const labels = hourly.map(h => h.hour + ':00');
+            const data = hourly.map(h => h.calls);
+            if (timelineChart) timelineChart.destroy();
+            timelineChart = new Chart(document.getElementById('chartTimeline'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Llamadas', data, backgroundColor: '#1f6feb88', borderColor: '#1f6feb', borderWidth: 1 }] },
+                options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }, y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } } } }
+            });
+        }
+
+        function renderTop(tools) {
+            const labels = tools.map(t => t.tool);
+            const data = tools.map(t => t.calls);
+            if (topChart) topChart.destroy();
+            topChart = new Chart(document.getElementById('chartTop'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Llamadas', data, backgroundColor: '#3fb95088', borderColor: '#3fb950', borderWidth: 1 }] },
+                options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }, y: { ticks: { color: '#8b949e', font: { size: 11 } }, grid: { color: '#21262d' } } } }
+            });
+        }
+
+        function renderRecent(rows) {
+            const tb = document.getElementById('tb-recent');
+            tb.innerHTML = rows.map(r => `<tr>
+                <td>${r.tool}</td>
+                <td>${r.duration_ms?.toFixed(1) ?? '—'} ms</td>
+                <td><span class="badge ${r.success ? 'ok' : 'err'}">${r.success ? 'OK' : 'ERR'}</span></td>
+                <td class="error-msg">${r.error || ''}</td>
+            </tr>`).join('');
+        }
+
+        function renderSecurity(rows) {
+            const tb = document.getElementById('tb-security');
+            if (!rows.length) { tb.innerHTML = '<tr><td colspan="3" style="color:#8b949e">Sin eventos</td></tr>'; return; }
+            tb.innerHTML = rows.map(r => `<tr>
+                <td><span class="badge warn">${r.type}</span></td>
+                <td>${r.tool}</td>
+                <td class="error-msg">${r.details || ''}</td>
+            </tr>`).join('');
+        }
+
+        loadAll();
+        setInterval(loadAll, 30000);
+    </script>
+</body>
+</html>
