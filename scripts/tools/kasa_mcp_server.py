@@ -11,8 +11,8 @@ from kasa import SmartPlug
 
 # ── Configuración ─────────────────────────────────────────
 DEVICES = {
-    "elektrodante": "192.168.1.66",
-    "lux": "192.168.1.67"
+    "elektrodante": "192.168.1.70",
+    "lux": "192.168.1.71"
 }
 
 ALIASES = {
@@ -24,72 +24,67 @@ ALIASES = {
     "pc": "elektrodante"
 }
 
-# ── Tools disponibles ─────────────────────────────────────
-TOOLS = [
-    {
-        "name": "set_plug_state",
-        "description": "Enciende o apaga uno o todos los enchufes inteligentes Kasa.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "device_name": {
-                    "type": "string",
-                    "description": "Nombre del dispositivo ('ElektroDante', 'Lux', 'todos')."
-                },
-                "turn_on": {
-                    "type": "boolean",
-                    "description": "True para encender, False para apagar."
-                }
-            },
-            "required": ["device_name", "turn_on"]
-        }
-    },
-    {
-        "name": "get_plugs_status",
-        "description": "Obtiene el estado actual de todos los enchufes.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {}
-        }
-    }
-]
-
 # ── Funciones Kasa ────────────────────────────────────────
-def resolve_device(name: str):
+async def get_kasa_devices_map():
+    """Descubre dinámicamente dispositivos Kasa en la red o usa la caché conocida."""
+    from kasa import Discover
+    discovered = {}
+    try:
+        devs = await asyncio.wait_for(Discover.discover(), timeout=2.5)
+        for ip, d in devs.items():
+            discovered[d.alias.lower().strip()] = ip
+            if d.alias.lower().strip() == "elektrodante":
+                DEVICES["elektrodante"] = ip
+            elif d.alias.lower().strip() == "lux":
+                DEVICES["lux"] = ip
+    except Exception:
+        pass
+    return DEVICES
+
+async def resolve_device(name: str):
     key = name.lower().strip()
-    if key in DEVICES:
-        return key, DEVICES[key]
-    if key in ALIASES and ALIASES[key] in DEVICES:
+    devices = await get_kasa_devices_map()
+    if key in devices:
+        return key, devices[key]
+    if key in ALIASES and ALIASES[key] in devices:
         target = ALIASES[key]
-        return target, DEVICES[target]
+        return target, devices[target]
     return None, None
 
 async def kasa_set_plug_state(device_name: str, turn_on: bool) -> str:
+    from kasa import Discover
     if device_name.lower() in ["todo", "todos", "all"]:
         results = []
-        for dev_name, dev_ip in DEVICES.items():
-            plug = SmartPlug(dev_ip)
-            await plug.update()
-            if turn_on:
-                await plug.turn_on()
-                results.append(f"{dev_name}: ON")
-            else:
-                await plug.turn_off()
-                results.append(f"{dev_name}: OFF")
+        devices = await get_kasa_devices_map()
+        for dev_name, dev_ip in devices.items():
+            try:
+                plug = await Discover.discover_single(dev_ip)
+                await plug.update()
+                if turn_on:
+                    await plug.turn_on()
+                    results.append(f"{dev_name}: ON")
+                else:
+                    await plug.turn_off()
+                    results.append(f"{dev_name}: OFF")
+            except Exception as e:
+                results.append(f"{dev_name}: Error ({e})")
         return "Dispositivos actualizados: " + ", ".join(results)
 
-    target, ip = resolve_device(device_name)
+    target, ip = await resolve_device(device_name)
     if not ip:
         return f"Dispositivo '{device_name}' no reconocido. Disponibles: ElektroDante, Lux, todos."
 
-    plug = SmartPlug(ip)
-    await plug.update()
-    if turn_on:
-        await plug.turn_on()
-        return f"'{target}' encendido correctamente."
-    else:
-        await plug.turn_off()
-        return f"'{target}' apagado correctamente."
+    try:
+        plug = await Discover.discover_single(ip)
+        await plug.update()
+        if turn_on:
+            await plug.turn_on()
+            return f"'{target}' encendido correctamente."
+        else:
+            await plug.turn_off()
+            return f"'{target}' apagado correctamente."
+    except Exception as e:
+        return f"Error al cambiar estado de '{target}' ({ip}): {e}"
 
 async def kasa_get_plugs_status() -> str:
     status_list = []
@@ -99,6 +94,36 @@ async def kasa_get_plugs_status() -> str:
         state_str = "Encendido" if plug.is_on else "Apagado"
         status_list.append(f"{name.capitalize()} ({ip}): {state_str}")
     return "\n".join(status_list)
+
+# ── MCP Tools Definitions ────────────────────────────────
+TOOLS = [
+    {
+        "name": "set_plug_state",
+        "description": "Enciende o apaga un enchufe Kasa por nombre (ElektroDante, Lux, todos).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device_name": {
+                    "type": "string",
+                    "description": "Nombre del dispositivo: 'elektrodante', 'lux', o 'todos'"
+                },
+                "turn_on": {
+                    "type": "boolean",
+                    "description": "True para encender, False para apagar"
+                }
+            },
+            "required": ["device_name", "turn_on"]
+        }
+    },
+    {
+        "name": "get_plugs_status",
+        "description": "Obtiene el estado actual (encendido/apagado) de todos los enchufes Kasa.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    }
+]
 
 # ── MCP JSON-RPC Handler ─────────────────────────────────
 def handle_request(request: dict) -> dict:

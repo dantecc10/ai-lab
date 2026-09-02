@@ -14,13 +14,56 @@ import glob
 import time
 import base64
 import hashlib
+import asyncio
+import threading
 from datetime import datetime
 from urllib.parse import quote
+from pathlib import Path
+from typing import Optional, List, Dict, Any, Tuple
 
-# Add venv site-packages for duckduckgo-search
-venv_site = "/tmp/search-env/lib/python3.12/site-packages"
-if os.path.exists(venv_site) and venv_site not in sys.path:
-    sys.path.insert(0, venv_site)
+def _flash_keyboard_status(tool_name: str):
+    """Dispara retroalimentación luminosa automática en el teclado ASUS según la herramienta invocada."""
+    def _run():
+        try:
+            from visual_notifier import notifier
+            t = (tool_name or "").lower()
+            if any(k in t for k in ["memory", "note", "reminder"]):
+                # Violeta/Púrpura neón: Operaciones de memoria y contexto
+                notifier.animate(colors=["bf00ff", "7f00ff", "00ffff"], duration=0.7, speed_ms=110)
+            elif any(k in t for k in ["append", "write", "replace", "file", "git"]):
+                # Verde esmeralda: Escritura/manipulación de archivos y código
+                notifier.animate(colors=["00ff66", "00e5ff", "00ffff"], duration=0.7, speed_ms=110)
+            elif any(k in t for k in ["command", "bash", "python", "script", "gpu", "system"]):
+                # Ámbar/Oro: Comandos de sistema y ejecución
+                notifier.animate(colors=["ffaa00", "ffd700", "00ffff"], duration=0.7, speed_ms=110)
+            elif "alert" in t or "visual" in t:
+                pass  # La propia herramienta maneja su animación
+            else:
+                # Azul cian pulsante
+                notifier.animate(colors=["0088ff", "00ffff"], duration=0.5, speed_ms=90)
+        except Exception:
+            pass
+    threading.Thread(target=_run, daemon=True).start()
+
+# ── Kasa Smart Plugs ──────────────────────────────────────
+KASA_DEVICES = {
+    "elektrodante": "192.168.1.66",
+    "lux": "192.168.1.67"
+}
+
+KASA_ALIASES = {
+    "luz": "lux",
+    "foco": "lux",
+    "lampara": "lux",
+    "electro": "elektrodante",
+    "escritorio": "elektrodante",
+    "pc": "elektrodante"
+}
+
+# Add venv site-packages
+skills_venv = os.path.expanduser("~/scripting/gpu-tools/skills/.venv/lib/python3.12/site-packages")
+if os.path.exists(skills_venv) and skills_venv not in sys.path:
+    sys.path.insert(0, skills_venv)
 
 # ── Configuración ─────────────────────────────────────────
 HOME = os.path.expanduser("~")
@@ -303,7 +346,7 @@ TOOLS = [
     },
     {
         "name": "read_file",
-        "description": "Lee el contenido de un archivo de texto.",
+        "description": "Lee el contenido de un archivo de texto. Soporta lectura por rango de líneas (start_line, end_line) para máxima eficiencia sin cargar todo el archivo.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -311,9 +354,17 @@ TOOLS = [
                     "type": "string",
                     "description": "Ruta del archivo a leer."
                 },
+                "start_line": {
+                    "type": "integer",
+                    "description": "Línea inicial a leer (1-indexed). Default: 1. OBLIGATORIO en archivos largos para no saturar el contexto."
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "Línea final a leer (inclusive). Si no se especifica, lee hasta max_lines."
+                },
                 "max_lines": {
                     "type": "integer",
-                    "description": "Máximo de líneas a leer. Default: 200."
+                    "description": "Máximo de líneas a leer desde start_line. Default: 200."
                 }
             },
             "required": ["path"]
@@ -321,24 +372,78 @@ TOOLS = [
     },
     {
         "name": "write_file",
-        "description": "Escribe contenido a un archivo. Crea el archivo si no existe, sobreescribe si existe.",
+        "description": "CUIDADO: Crea un archivo NUEVO que aún NO existe, o sobreescribe COMPLETAMENTE un archivo desde cero borrando su contenido anterior. PROHIBIDO usar write_file para agregar texto o resolver ejercicios al final de un archivo (para eso USA append_to_file). PROHIBIDO usar write_file para modificar o editar una sección existente (para eso USA replace_file_content).",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Ruta del archivo a escribir."
+                    "description": "Ruta del archivo a escribir (solo para archivos nuevos)."
                 },
                 "content": {
                     "type": "string",
-                    "description": "Contenido a escribir."
+                    "description": "Contenido completo del nuevo archivo."
                 },
                 "append": {
                     "type": "boolean",
-                    "description": "Si es true, agrega al final en vez de sobreescribir. Default: false."
+                    "description": "Si es true, agrega al final. Preferir append_to_file."
                 }
             },
             "required": ["path", "content"]
+        }
+    },
+    {
+        "name": "append_to_file",
+        "description": "AGREGA contenido directamente al FINAL de un archivo existente (ideal para agregar notas, apuntes, nuevas secciones o ejercicios resueltos). Es la herramienta OBLIGATORIA y preferente para agregar contenido al final sin tocar ni reescribir las líneas previas. NO necesitas leer todo el archivo previo.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Ruta del archivo existente al que se añadirá texto al final."
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Contenido o bloque de texto que se anexará al final del archivo."
+                }
+            },
+            "required": ["path", "content"]
+        }
+    },
+    {
+        "name": "replace_file_content",
+        "description": "REEMPLAZA quirúrgicamente un bloque de texto exacto (target_content) por nuevo texto (replacement_content) dentro de un archivo existente. Es la herramienta OBLIGATORIA y preferente para modificar, corregir o actualizar partes de un archivo sin sobreescribir el resto.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Ruta del archivo existente a modificar."
+                },
+                "target_content": {
+                    "type": "string",
+                    "description": "Texto exacto preexistente que se desea reemplazar dentro del archivo."
+                },
+                "replacement_content": {
+                    "type": "string",
+                    "description": "Nuevo texto con el que se reemplazará target_content."
+                }
+            },
+            "required": ["path", "target_content", "replacement_content"]
+        }
+    },
+    {
+        "name": "compact_context",
+        "description": "Compacta y sintetiza un historial conversacional, documento extenso o log de texto para prolongar el contexto, reduciendo los tokens al 15-20% preservando decisiones, archivos, código y tareas pendientes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "Texto, notas o fragmentos de conversación que se desean compactar."
+                }
+            },
+            "required": ["content"]
         }
     },
     {
@@ -775,13 +880,13 @@ TOOLS = [
     },
     {
         "name": "memory_search",
-        "description": "Busca en la memoria persistente por texto o tags.",
+        "description": "Busca y RECUPERA en detalle la información, directivas, preferencias, contactos, apodos o notas guardadas en la memoria persistente de Dante. OBLIGATORIO usar cuando el usuario mencione temas previos, preferencias, personas conocidas o reglas del sistema.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Texto a buscar en contenido o tags."
+                    "description": "Texto, palabras clave o tema a buscar en la memoria de Dante."
                 },
                 "category": {
                     "type": "string",
@@ -794,6 +899,20 @@ TOOLS = [
                 }
             },
             "required": ["query"]
+        }
+    },
+    {
+        "name": "memory_get",
+        "description": "Obtiene el contenido íntegro y metadatos de una entrada de memoria específica por su ID numérico.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                    "description": "ID de la entrada de memoria a consultar."
+                }
+            },
+            "required": ["id"]
         }
     },
     {
@@ -817,13 +936,13 @@ TOOLS = [
     },
     {
         "name": "memory_list",
-        "description": "Lista todas las entradas de memoria recientes.",
+        "description": "Lista el catálogo de entradas de memoria persistentes de Dante.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "limit": {
                     "type": "integer",
-                    "description": "Máximo de entradas. Default: 20."
+                    "description": "Máximo de entradas. Default: 30."
                 }
             },
             "required": []
@@ -964,6 +1083,70 @@ TOOLS = [
     {
         "name": "network_info",
         "description": "Muestra información de red: interfaces, IPs, gateway, DNS.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "network_arp_table",
+        "description": "Muestra la tabla de resolución ARP (Capa 2/3) con dispositivos vecinos descubiertos e interfaces sin root.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "network_scan_subnet",
+        "description": "Escanea concurrentemente un segmento o subred de IPs sin requerir root para encontrar dispositivos activos.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subnet_base": {
+                    "type": "string",
+                    "description": "Base de subred (ej: '172.31.0' o '192.168.1')."
+                },
+                "start_ip": {
+                    "type": "integer",
+                    "description": "IP inicial del rango (1-254). Default: 1."
+                },
+                "end_ip": {
+                    "type": "integer",
+                    "description": "IP final del rango (1-254). Default: 50."
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": "Timeout por sondeo en ms. Default: 150."
+                }
+            },
+            "required": ["subnet_base"]
+        }
+    },
+    {
+        "name": "network_port_scan",
+        "description": "Escanea puertos TCP en un objetivo para auditoría de servicios (Capa 4 Transporte) sin requerir root.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target_ip": {
+                    "type": "string",
+                    "description": "IP o host objetivo a escanear."
+                },
+                "ports": {
+                    "type": "string",
+                    "description": "Lista separada por comas de puertos a escanear (ej: '22,80,443,8080')."
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": "Timeout por puerto en ms. Default: 250."
+                }
+            },
+            "required": ["target_ip"]
+        }
+    },
+    {
+        "name": "network_interfaces_detailed",
+        "description": "Auditoría exhaustiva de Capa 2/3: interfaces, MTU, estado, MACs, tráfico RX/TX y servidores DNS.",
         "inputSchema": {
             "type": "object",
             "properties": {}
@@ -1752,25 +1935,47 @@ TOOLS = [
     },
     {
         "name": "chat_export",
-        "description": "Exporta una conversación y genera enlace para compartir con QR.",
+        "description": "Guarda y exporta la conversación actual a ChatShare, generando un enlace público de internet en ai.castelancarpinteyro.com.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "messages": {
                     "type": "string",
-                    "description": "Mensajes en formato JSON: [{\"role\":\"user\",\"content\":\"...\"},...]"
+                    "description": "Mensajes de la conversación en formato JSON: [{\"role\":\"user\",\"content\":\"...\"},...]"
                 },
                 "title": {
                     "type": "string",
-                    "description": "Título del chat (opcional)."
+                    "description": "Título descriptivo de la conversación."
+                },
+                "expires_hours": {
+                    "type": "integer",
+                    "description": "Horas de validez del enlace (por defecto: 72)."
                 }
             },
             "required": ["messages"]
         }
     },
     {
+        "name": "chat_share",
+        "description": "Genera un enlace público en ai.castelancarpinteyro.com con token de acceso para un chat por su ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chat_id": {
+                    "type": "string",
+                    "description": "ID del chat registrado."
+                },
+                "expires_hours": {
+                    "type": "integer",
+                    "description": "Horas de validez (por defecto: 72)."
+                }
+            },
+            "required": ["chat_id"]
+        }
+    },
+    {
         "name": "chat_list_shared",
-        "description": "Lista todos los chats exportados/compartidos.",
+        "description": "Lista los chats guardados en el sistema local de ChatShare.",
         "inputSchema": {
             "type": "object",
             "properties": {}
@@ -1778,16 +1983,93 @@ TOOLS = [
     },
     {
         "name": "chat_get_shared",
-        "description": "Obtiene un chat compartido por su ID.",
+        "description": "Obtiene los detalles y mensajes de un chat guardado por su ID.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "chat_id": {
                     "type": "string",
-                    "description": "ID del chat compartido."
+                    "description": "ID del chat."
                 }
             },
             "required": ["chat_id"]
+        }
+    },
+    # ── Local Media Viewing Tools ─────────────────────────────
+    {
+        "name": "media_view",
+        "description": "Muestra un archivo multimedia local (imagen, audio, video) directamente en la ventana del chat web local (:9090 / Open WebUI) sin necesidad de subirlo a internet.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Ruta al archivo local (ej: '~/bitmap.png' o '/home/darkseid/audio.wav')."
+                },
+                "caption": {
+                    "type": "string",
+                    "description": "Descripción o título opcional del archivo."
+                }
+            },
+            "required": ["file_path"]
+        }
+    },
+    # ── Cloudflare R2 Storage Tools ───────────────────────────
+    {
+        "name": "r2_upload",
+        "description": "Sube un archivo local (imagen, audio, video, documento) a Cloudflare R2 y obtiene su enlace CDN público.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Ruta al archivo local."
+                },
+                "prefix": {
+                    "type": "string",
+                    "description": "Carpeta o prefijo en el bucket (por defecto: 'media')."
+                }
+            },
+            "required": ["file_path"]
+        }
+    },
+    {
+        "name": "r2_list",
+        "description": "Lista los archivos y recursos multimedia alojados en Cloudflare R2.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "prefix": {
+                    "type": "string",
+                    "description": "Prefijo para filtrar archivos."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Límite de resultados (por defecto: 20)."
+                }
+            }
+        }
+    },
+    {
+        "name": "r2_delete",
+        "description": "Elimina un archivo de Cloudflare R2 por su clave (key).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": "Clave del archivo en el bucket."
+                }
+            },
+            "required": ["key"]
+        }
+    },
+    {
+        "name": "r2_status",
+        "description": "Comprueba el estado de conexión y configuración del almacenamiento Cloudflare R2.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
         }
     },
     # ── Email Tools ─────────────────────────────────────────
@@ -2680,6 +2962,33 @@ TOOLS = [
             "required": ["objective"]
         }
     },
+    # ── Kasa Smart Plugs ─────────────────────────────────────
+    {
+        "name": "kasa_set_plug_state",
+        "description": "Enciende o apaga uno o todos los enchufes inteligentes Kasa (ElektroDante, Lux, o 'todos').",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device_name": {
+                    "type": "string",
+                    "description": "Nombre del dispositivo ('elektrodante', 'lux', 'todos', o alias: 'luz', 'escritorio', 'pc')."
+                },
+                "turn_on": {
+                    "type": "boolean",
+                    "description": "True para encender, False para apagar."
+                }
+            },
+            "required": ["device_name", "turn_on"]
+        }
+    },
+    {
+        "name": "kasa_get_plugs_status",
+        "description": "Obtiene el estado actual (encendido/apagado) de todos los enchufes inteligentes Kasa.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
     # ── Enhanced Communication Tools ────────────────────────
     {
         "name": "notify_contextual",
@@ -2912,8 +3221,1280 @@ TOOLS = [
             },
             "required": ["name"]
         }
+    },
+    {
+        "name": "audit_get_metrics",
+        "description": "Consulta métricas agregadas de rendimiento de herramientas, tasa de éxito, latencia y uso de GPU/VRAM en las últimas N horas.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": "Número de horas hacia atrás para calcular métricas (default: 24)."
+                }
+            }
+        }
+    },
+    {
+        "name": "audit_list_traces",
+        "description": "Lista las trazas de auditoría de ejecución de herramientas recientes para trazabilidad, depuración y auto-diagnóstico.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Número máximo de trazas a recuperar (default: 10)."
+                },
+                "errors_only": {
+                    "type": "boolean",
+                    "description": "Si es true, solo devuelve trazas de herramientas que fallaron (default: false)."
+                }
+            }
+        }
+    },
+    {
+        "name": "workflow_list",
+        "description": "Lista todos los flujos de trabajo declarativos (DAG pipelines) disponibles en AI Lab.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "workflow_run",
+        "description": "Ejecuta un flujo de trabajo declarativo (DAG pipeline) por su nombre (ej: 'daily_briefing', 'system_health_audit').",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Nombre del workflow a ejecutar."
+                },
+                "params": {
+                    "type": "object",
+                    "description": "Parámetros personalizados opcionales para el flujo."
+                }
+            },
+            "required": ["name"]
+        }
+    },
+    {
+        "name": "workflow_status",
+        "description": "Consulta el estado y resultados de un flujo de trabajo ejecutado previamente por su ID de ejecución.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id": {
+                    "type": "integer",
+                    "description": "ID numérico de la ejecución del workflow."
+                }
+            },
+            "required": ["run_id"]
+        }
+    },
+    {
+        "name": "vector_search",
+        "description": "Realiza búsqueda semántica vectorial (RAG) en los documentos, código y base de conocimiento indexada de AI Lab.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Consulta o pregunta en lenguaje natural."
+                },
+                "collection": {
+                    "type": "string",
+                    "description": "Colección a consultar (ej: 'ai-lab-docs', 'code', 'all') (default: 'all')."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Número máximo de fragmentos relevantes a retornar (default: 5)."
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "vector_index_path",
+        "description": "Indexa semánticamente un archivo o carpeta en la base de datos vectorial local para RAG.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Ruta absoluta o relativa del archivo o carpeta a indexar."
+                },
+                "collection": {
+                    "type": "string",
+                    "description": "Nombre de la colección destino (ej: 'ai-lab-docs', 'project', 'notes') (default: 'docs')."
+                }
+            },
+            "required": ["path"]
+        }
+    },
+    {
+        "name": "vector_remember",
+        "description": "Guarda un recuerdo episódico o preferencia en la memoria semántica vectorial de largo plazo.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "Texto del recuerdo, preferencia o hecho a almacenar."
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Categoría del recuerdo (ej: 'preference', 'project', 'architecture', 'general') (default: 'preference')."
+                }
+            },
+            "required": ["text"]
+        }
+    },
+    {
+        "name": "vector_stats",
+        "description": "Consulta estadísticas de la base de datos vectorial local (colecciones, fragmentos indexados, memorias y tamaño).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "browser_navigate",
+        "description": "Navega a una URL utilizando el navegador headless Brave Browser y espera a que cargue.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL de destino a la que navegar."
+                },
+                "wait_seconds": {
+                    "type": "number",
+                    "description": "Segundos de espera tras la navegación (default: 3.0)."
+                }
+            },
+            "required": ["url"]
+        }
+    },
+    {
+        "name": "browser_extract_text",
+        "description": "Extrae el contenido textual legible de la página activa o de un selector CSS específico.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "selector": {
+                    "type": "string",
+                    "description": "Selector CSS del elemento a extraer (default: 'body')."
+                }
+            }
+        }
+    },
+    {
+        "name": "browser_click",
+        "description": "Hace clic en un elemento web interactivo (botón, enlace, menú) mediante su selector CSS.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "selector": {
+                    "type": "string",
+                    "description": "Selector CSS del elemento a cliquear."
+                }
+            },
+            "required": ["selector"]
+        }
+    },
+    {
+        "name": "browser_type",
+        "description": "Escribe texto en un campo de entrada o formulario en la página web activa.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "selector": {
+                    "type": "string",
+                    "description": "Selector CSS del campo de texto / input."
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Texto a ingresar."
+                },
+                "submit": {
+                    "type": "boolean",
+                    "description": "Si es true, envía el formulario tras escribir (default: false)."
+                }
+            },
+            "required": ["selector", "text"]
+        }
+    },
+    {
+        "name": "browser_screenshot",
+        "description": "Captura de pantalla de la página web activa y la guarda en la carpeta multimedia para visualización directa.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Nombre opcional del archivo (default: screenshot_<timestamp>.png)."
+                },
+                "full_page": {
+                    "type": "boolean",
+                    "description": "Si es true, captura la página completa (scroll completo) (default: false)."
+                }
+            }
+        }
+    },
+    {
+        "name": "browser_sync_brave_profile",
+        "description": "Sincroniza cookies, sesiones autenticadas e identidades desde el navegador personal Brave hacia el entorno de navegación de la IA.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "profile_name": {
+                    "type": "string",
+                    "description": "Nombre del perfil de Brave a sincronizar (default: 'Default')."
+                }
+            }
+        }
+    },
+    {
+        "name": "browser_status",
+        "description": "Consulta el estado actual de la sesión del navegador headless (URL actual, título, puerto CDP).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "browser_extract_markdown",
+        "description": "Modo lectura avanzado: extrae el contenido esencial de la página web convertido a Markdown estructurado, omitiendo anuncios y elementos distractores.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "browser_print_pdf",
+        "description": "Genera e imprime un documento PDF de alta fidelidad con el contenido de la página web activa.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "Nombre del archivo PDF de salida (ej: 'reporte.pdf')."
+                }
+            }
+        }
+    },
+    {
+        "name": "browser_get_links",
+        "description": "Extrae todos los enlaces e hipervínculos presentes en la página web activa.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "browser_list_tabs",
+        "description": "Lista todas las pestañas abiertas en el navegador headless.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "browser_clear_session",
+        "description": "Limpia cookies y caché del navegador para iniciar una sesión anónima limpia (modo incógnito).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "voice_speak",
+        "description": "Sintetiza y reproduce voz en tiempo real con soporte de interrupción bidireccional (Barge-In).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "Texto a hablar."
+                },
+                "interruptible": {
+                    "type": "boolean",
+                    "description": "Permite interrumpir la reproducción si se detecta voz del usuario (default: true)."
+                },
+                "notify": {
+                    "type": "boolean",
+                    "description": "Enviar notificación visual de escritorio en Pop!_OS (default: true)."
+                }
+            },
+            "required": ["text"]
+        }
+    },
+    {
+        "name": "voice_listen",
+        "description": "Escucha el micrófono con Voice Activity Detection (VAD) inteligente y transcribe el audio a texto.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "timeout_seconds": {
+                    "type": "number",
+                    "description": "Tiempo máximo de escucha en segundos (default: 8.0)."
+                },
+                "silence_ms": {
+                    "type": "integer",
+                    "description": "Milisegundos de silencio para cortar la grabación automáticamente (default: 800)."
+                }
+            }
+        }
+    },
+    {
+        "name": "voice_status",
+        "description": "Consulta el estado de los componentes de voz (Piper TTS, Whisper STT, micrófono y Barge-In).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "vision_analyze_image",
+        "description": "Realiza inferencia visual multimodal u OCR sobre una imagen local o captura de pantalla.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "image_path": {
+                    "type": "string",
+                    "description": "Ruta absoluta o relativa del archivo de imagen."
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "Pregunta o instrucción de análisis visual (default: 'Describe esta imagen en detalle')."
+                }
+            },
+            "required": ["image_path"]
+        }
+    },
+    {
+        "name": "vision_inspect_screen",
+        "description": "Captura la pantalla del escritorio en tiempo real y ejecuta análisis visual multimodal sobre el contenido.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Pregunta o instrucción para el análisis de la pantalla (default: 'Describe la actividad actual en pantalla')."
+                }
+            }
+        }
+    },
+    {
+        "name": "vision_ocr",
+        "description": "Extrae el texto completo de una imagen mediante el motor local Tesseract OCR.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "image_path": {
+                    "type": "string",
+                    "description": "Ruta de la imagen a procesar."
+                }
+            },
+            "required": ["image_path"]
+        }
+    },
+    {
+        "name": "desktop_context_explain",
+        "description": "Inspección contextual omnipotente: analiza qué está haciendo el usuario en pantalla (ventana activa o monitor), identifica botones y opciones visibles, y sugiere acciones proactivas con apoyo de documentación local.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "Objetivo de captura: 'active_window', 'all', 'monitor', 'bbox' (default: 'active_window')."
+                },
+                "user_intent": {
+                    "type": "string",
+                    "description": "Pregunta o intención del usuario (default: '¿Qué estoy haciendo y qué opciones tengo?')."
+                },
+                "include_rag": {
+                    "type": "boolean",
+                    "description": "Consultar documentación y guías locales (RAG) para sugerir pasos concretos (default: true)."
+                }
+            }
+        }
+    },
+    {
+        "name": "desktop_list_monitors",
+        "description": "Lista todos los monitores y pantallas físicas conectadas, sus resoluciones y geometrías.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "desktop_list_windows",
+        "description": "Lista todas las ventanas abiertas en el escritorio, títulos de aplicaciones, geometrías y cuál tiene el foco.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "desktop_capture_region",
+        "description": "Captura una ventana, monitor o región rectangular de la pantalla y la guarda en la carpeta multimedia.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "Tipo de objetivo: 'active_window', 'monitor', 'window', 'bbox', 'all' (default: 'active_window')."
+                },
+                "monitor_name": {
+                    "type": "string",
+                    "description": "Nombre del monitor si target='monitor' (ej: 'DP-2', 'eDP-1')."
+                },
+                "window_id": {
+                    "type": "string",
+                    "description": "ID de la ventana si target='window'."
+                },
+                "bbox": {
+                    "type": "object",
+                    "description": "Coordenadas {x, y, width, height} si target='bbox'."
+                }
+            }
+        }
+    },
+    {
+        "name": "audio_check_volume",
+        "description": "Diagnostica el volumen del sistema y el estado de mute, alertando con notificación de escritorio si el audio no es audible para conversar.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "min_volume": {
+                    "type": "integer",
+                    "description": "Porcentaje mínimo de volumen requerido (default: 15)."
+                },
+                "notify_if_inaudible": {
+                    "type": "boolean",
+                    "description": "Enviar notificación si las bocinas están silenciadas o muy bajas (default: true)."
+                }
+            }
+        }
+    },
+    {
+        "name": "audio_set_volume",
+        "description": "Ajusta el volumen del sistema y desactiva el mute.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "percent": {
+                    "type": "integer",
+                    "description": "Porcentaje de volumen (0 a 150)."
+                },
+                "unmute": {
+                    "type": "boolean",
+                    "description": "Desactivar silencio automáticamente (default: true)."
+                }
+            },
+            "required": ["percent"]
+        }
+    },
+    {
+        "name": "voice_set_profile",
+        "description": "Personaliza el perfil de voz, idioma, acento, velocidad y tono del asistente (ej: 'es_MX_alvaro', 'es_ES_castilian', 'en_US_natural', 'en_GB_british', 'fast_assistant').",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "profile_id": {
+                    "type": "string",
+                    "description": "Identificador del perfil de voz."
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Código de idioma (ej: 'es-MX', 'es-ES', 'en-US', 'en-GB')."
+                },
+                "speed": {
+                    "type": "number",
+                    "description": "Velocidad de habla (0.5 a 2.5, default: 1.0)."
+                },
+                "pitch": {
+                    "type": "number",
+                    "description": "Tono de voz (0.5 a 2.0, default: 1.0)."
+                },
+                "volume": {
+                    "type": "integer",
+                    "description": "Volumen de voz del sintetizador (10 a 150)."
+                }
+            },
+            "required": ["profile_id"]
+        }
+    },
+    {
+        "name": "voice_list_profiles",
+        "description": "Lista todos los perfiles de voz, acentos e idiomas disponibles para el asistente.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "voice_conversational_turn",
+        "description": "Ejecuta un ciclo conversacional completo por voz (escucha micrófono con VAD, procesa con LLM y responde por voz con Barge-In).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Prompt inicial opcional para arrancar la conversación."
+                }
+            }
+        }
+    },
+    {
+        "name": "handy_status",
+        "description": "Obtiene el estado de la integración con Handy (cjpais/Handy), modelo Parakeet V3 y última transcripción capturada.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "handy_toggle_transcription",
+        "description": "Inicia o detiene la captura/transcripción de audio global en la aplicación Handy.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "voice_transcribe_audio",
+        "description": "Transcribe un archivo de audio WAV usando Parakeet V3 (Handy) o Whisper con la máxima precisión.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Ruta al archivo WAV a transcribir."
+                },
+                "engine": {
+                    "type": "string",
+                    "description": "Motor ASR preferido ('parakeet', 'whisper' o 'auto'). Default: 'auto'."
+                }
+            },
+            "required": ["file_path"]
+        }
+    }
+,
+    # ── GitHub Monitor Tools ─────────────────────────────────
+    {
+        "name": "github_monitor_status",
+        "description": "Obtiene el estado de la telemetría del monitor permanente de GitHub: repositorios activos, commits recientes, estado de CI/CD (GitHub Actions) y alertas enviadas.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "github_watch_repo",
+        "description": "Agrega un repositorio específico de GitHub al monitoreo permanente en segundo plano.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_name": {
+                    "type": "string",
+                    "description": "Nombre del repositorio en formato 'propietario/nombre' (ej: 'dantecc10/ai-lab')."
+                }
+            },
+            "required": ["repo_name"]
+        }
+    },
+    {
+        "name": "github_unwatch_repo",
+        "description": "Desactiva el monitoreo de un repositorio de GitHub.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_name": {
+                    "type": "string",
+                    "description": "Nombre del repositorio (ej: 'dantecc10/ai-lab')."
+                }
+            },
+            "required": ["repo_name"]
+        }
+    },
+    {
+        "name": "github_actions_status",
+        "description": "Consulta el estado detallado de los últimos flujos de trabajo y builds de GitHub Actions para un repositorio.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_name": {
+                    "type": "string",
+                    "description": "Nombre del repositorio (ej: 'dantecc10/ai-lab'). Si no se especifica, usa 'dantecc10/ai-lab'.",
+                    "default": "dantecc10/ai-lab"
+                }
+            }
+        }
+    },
+    # ── Automation, Nighttime & Visual Alerts ─────────────────
+    {
+        "name": "execute_sleep_routine",
+        "description": "Ejecuta la rutina nocturna de dormir: Apaga la luz Lux, deja encendido ElektroDante para cargar dispositivos en la noche, y apaga la luz del teclado (o apaga la computadora entera si se le solicita).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "shutdown_pc": {
+                    "type": "boolean",
+                    "description": "True si el usuario se despide para apagar la computadora (ej. 'Adiós, nos vemos mañana', 'Vámonos a dormir'). False si solo es hora de dormir manteniendo la compu encendida (ej. 'Es hora de dormir')."
+                }
+            },
+            "required": ["shutdown_pc"]
+        }
+    },
+    {
+        "name": "control_keyboard_backlight",
+        "description": "Controla el brillo de la luz del teclado ASUS ROG/TUF ('off', 'low', 'med', 'high'). Útil para apagar la luz del teclado al dormir.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "level": {
+                    "type": "string",
+                    "enum": ["off", "low", "med", "high"],
+                    "description": "Nivel de brillo ('off', 'low', 'med', 'high')"
+                }
+            },
+            "required": ["level"]
+        }
+    },
+    {
+        "name": "audit_git_repositories",
+        "description": "Audita y revisa todos los repositorios de código en /media/darkseid/DATA/Repos para detectar cambios sin commitear, archivos nuevos o commits locales sin subir a GitHub/remoto.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "base_dir": {
+                    "type": "string",
+                    "description": "Directorio raíz de repositorios (por defecto '/media/darkseid/DATA/Repos')"
+                }
+            }
+        }
+    },
+    {
+        "name": "trigger_visual_alert",
+        "description": "Control de efectos e iluminación libre del teclado ASUS ROG/TUF y lámpara: reproduce secuencias cromáticas personalizadas, estilos temáticos ('cyberpunk', 'police', 'matrix', 'rainbow', 'fire', 'aurora', 'heartbeat', 'synthwave', 'breathe', 'strobe'), listas libres de colores RGB, intervalos de velocidad y presets. Siempre retorna al color base Cian (#00ffff).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "style": {
+                    "type": "string",
+                    "enum": ["police", "cyberpunk", "synthwave", "matrix", "rainbow", "fire", "aurora", "heartbeat", "breathe", "strobe"],
+                    "description": "Estilo temático de animación (opcional)"
+                },
+                "colors": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Lista libre de colores hex o nombres (ej: ['ff0000', '00ffff', 'ff00ff'] o ['red', 'blue'])"
+                },
+                "level": {
+                    "type": "string",
+                    "enum": ["normal", "important", "critical", "error", "success", "warning"],
+                    "description": "Preset de severidad/prioridad ('normal': cian, 'important': ámbar, 'critical': rojo, 'success': verde)"
+                },
+                "duration": {
+                    "type": "number",
+                    "description": "Duración total en segundos (ej: 2.5, 5.0, 10.0)"
+                },
+                "speed_ms": {
+                    "type": "integer",
+                    "description": "Intervalo entre cambios en milisegundos (ej: 60ms para rápido, 200ms para lento)"
+                },
+                "include_lamp": {
+                    "type": "boolean",
+                    "description": "Si debe incluir parpadeo de la lámpara Lux"
+                }
+            }
+        }
+    },
+    # ── Recordatorios y Temporizadores ────────────────────────
+    {
+        "name": "reminder_add",
+        "description": "Programa un recordatorio o temporizador omnicanal (Telegram, escritorio Pop!_OS, aviso visual en teclado ASUS y lámpara Lux).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Texto del recordatorio o tarea (ej: 'Revisar entrenamiento de modelo', 'Sacar la comida')"},
+                "due": {"type": "string", "description": "Tiempo relativo o natural (ej: '15m', '2h', '18:30', 'en 45 segundos')"},
+                "priority": {"type": "string", "enum": ["normal", "important", "critical"], "description": "Nivel de urgencia de la notificación", "default": "normal"}
+            },
+            "required": ["title", "due"]
+        }
+    },
+    {
+        "name": "reminder_list",
+        "description": "Lista todos los recordatorios y temporizadores pendientes de vencer.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "reminder_cancel",
+        "description": "Cancela y elimina un recordatorio por su ID numérico.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "reminder_id": {"type": "integer", "description": "ID numérico del recordatorio a cancelar"}
+            },
+            "required": ["reminder_id"]
+        }
+    },
+    # ── Dev Ops & Control Remoto ─────────────────────────────
+    {
+        "name": "dev_system_telemetry",
+        "description": "Dashboard completo de telemetría en tiempo real: GPU NVIDIA VRAM/temp/potencia, RAM, Swap, Disco, y estado de servicios IA activos.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "dev_service_control",
+        "description": "Gestiona servicios systemd del ecosistema (gemma4-server, e4b-server, whisper-server, telegram-bot, git-sentinel, chatmanager).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "service_name": {"type": "string", "description": "Nombre del servicio systemd"},
+                "action": {"type": "string", "enum": ["start", "stop", "restart", "status", "logs"], "description": "Acción a realizar"}
+            },
+            "required": ["service_name", "action"]
+        }
+    },
+    {
+        "name": "dev_process_monitor",
+        "description": "Monitorea los procesos con mayor consumo de CPU y memoria RAM en el sistema.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "count": {"type": "integer", "description": "Número de procesos a listar", "default": 5}
+            }
+        }
+    },
+    {
+        "name": "dev_git_quick_action",
+        "description": "Ejecuta comandos git (status, diff, log, branch, pull) en cualquier repositorio del acervo en /media/darkseid/DATA/Repos.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_path_or_name": {"type": "string", "description": "Nombre de la carpeta o ruta del repositorio"},
+                "git_command": {"type": "string", "description": "Comando git a ejecutar (ej: 'status', 'log', 'diff', 'branch', 'pull')", "default": "status"}
+            },
+            "required": ["repo_path_or_name"]
+        }
+    },
+    # ── Multimedia & YouTube (Whisper + yt-dlp) ──────────────────
+    {
+        "name": "media_download_url",
+        "description": "Descarga audio o video de YouTube, X, TikTok, Reddit o Podcasts mediante yt-dlp.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL del contenido a descargar"},
+                "media_type": {"type": "string", "enum": ["audio", "video"], "description": "Tipo de descarga ('audio' mp3 o 'video' mp4)", "default": "audio"}
+            },
+            "required": ["url"]
+        }
+    },
+    {
+        "name": "media_transcribe_audio",
+        "description": "Transcribe audio local o video de YouTube extrayendo el habla con Whisper STT (:9093).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url_or_path": {"type": "string", "description": "Ruta a archivo de audio local o URL de YouTube"}
+            },
+            "required": ["url_or_path"]
+        }
+    },
+    {
+        "name": "media_summarize_content",
+        "description": "Descarga, transcribe con Whisper y genera un resumen estructurado de alto valor con Gemma 4 para un video de YouTube, podcast o audio.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url_or_path": {"type": "string", "description": "URL de YouTube/multimedia o ruta a un archivo de audio local"}
+            },
+            "required": ["url_or_path"]
+        }
+    },
+    # ── Voz Creativa & Estudio (Kokoro-82M) ───────────────────
+    {
+        "name": "voice_creative_generate",
+        "description": "Genera audio de voz con alta expresividad, entonación humana natural y variedad de timbres vocales usando Kokoro-82M en CPU.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Texto a sintetizar en voz de alta fidelidad"},
+                "voice": {"type": "string", "description": "ID de la voz (ej: 'em_santa', 'bm_george', 'ef_dora', 'af_bella', 'am_adam')", "default": "em_santa"},
+                "speed": {"type": "number", "description": "Velocidad de locución (ej: 0.9, 1.0, 1.1)", "default": 1.0}
+            },
+            "required": ["text"]
+        }
+    },
+    {
+        "name": "voice_speak_notification",
+        "description": "Emite una notificación hablada por los altavoces de la PC con voz británica ('bm_george') o española ('em_santa') y aviso visual en el teclado.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "Mensaje a pronunciar por altavoces"},
+                "voice": {"type": "string", "enum": ["bm_george", "em_santa", "am_adam", "ef_dora"], "description": "Voz de locución", "default": "bm_george"},
+                "visual_style": {"type": "string", "description": "Estilo de animación del teclado (ej: 'synthwave', 'cyberpunk', 'police')", "default": "synthwave"}
+            },
+            "required": ["message"]
+        }
+    },
+    {
+        "name": "voice_creative_list",
+        "description": "Lista el catálogo de voces expresivas disponibles (español, inglés americano/británico).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    # ── Generación de Imagen (Diffusers / ComfyUI) ───────────
+    {
+        "name": "image_ai_generate",
+        "description": "Genera una imagen con IA a partir de una descripción textual mediante difusión local en CPU / Shared Memory o ComfyUI.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "Descripción detallada de la imagen a generar"},
+                "aspect_ratio": {"type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4"], "description": "Relación de aspecto", "default": "1:1"}
+            },
+            "required": ["prompt"]
+        }
     }
 ]
+
+
+# ── Kasa Implementations ────────────────────────────────────
+def _kasa_resolve_device(name: str):
+    """Resolve device name to (name, ip)."""
+    key = name.lower().strip()
+    if key in KASA_DEVICES:
+        return key, KASA_DEVICES[key]
+    if key in KASA_ALIASES and KASA_ALIASES[key] in KASA_DEVICES:
+        target = KASA_ALIASES[key]
+        return target, KASA_DEVICES[target]
+    return None, None
+
+
+async def _kasa_set_plug_state(device_name: str, turn_on: bool) -> str:
+    """Set plug state via Kasa protocol."""
+    from kasa import SmartPlug
+
+    if device_name.lower() in ["todo", "todos", "all"]:
+        results = []
+        for dev_name, dev_ip in KASA_DEVICES.items():
+            plug = SmartPlug(dev_ip)
+            await plug.update()
+            if turn_on:
+                await plug.turn_on()
+                results.append(f"{dev_name}: ON")
+            else:
+                await plug.turn_off()
+                results.append(f"{dev_name}: OFF")
+        return "Dispositivos actualizados: " + ", ".join(results)
+
+    target, ip = _kasa_resolve_device(device_name)
+    if not ip:
+        return f"Dispositivo '{device_name}' no reconocido. Disponibles: ElektroDante, Lux, todos."
+
+    plug = SmartPlug(ip)
+    await plug.update()
+    if turn_on:
+        await plug.turn_on()
+        return f"'{target}' encendido correctamente."
+    else:
+        await plug.turn_off()
+        return f"'{target}' apagado correctamente."
+
+
+async def _kasa_get_plugs_status() -> str:
+    """Get status of all plugs."""
+    from kasa import SmartPlug
+
+    status_list = []
+    for name, ip in KASA_DEVICES.items():
+        plug = SmartPlug(ip)
+        await plug.update()
+        state_str = "Encendido" if plug.is_on else "Apagado"
+        status_list.append(f"{name.capitalize()} ({ip}): {state_str}")
+    return "\n".join(status_list)
+
+
+def tool_kasa_set_plug_state(device_name: str, turn_on: bool) -> str:
+    """Set Kasa plug state (sync wrapper)."""
+    try:
+        return asyncio.run(_kasa_set_plug_state(device_name, turn_on))
+    except Exception as e:
+        return f"Error controlando enchufe: {e}"
+
+
+def tool_kasa_get_plugs_status() -> str:
+    """Get all Kasa plugs status (sync wrapper)."""
+    try:
+        return asyncio.run(_kasa_get_plugs_status())
+    except Exception as e:
+        return f"Error obteniendo estado: {e}"
+
+
+
+# ── GitHub Monitor Tools ───────────────────────────────────
+def tool_github_monitor_status() -> str:
+    """Obtiene el reporte de estado del monitor permanente de GitHub desde SQLite."""
+    try:
+        db_path = os.path.expanduser("~/.local/share/ai-lab/github_monitor.db")
+        if not os.path.exists(db_path):
+            return "El monitor de GitHub no ha generado base de datos aún. Asegúrate de que github-monitor.service esté activo."
+        
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+
+        watched_count = conn.execute("SELECT COUNT(*) as c FROM watched_repos WHERE is_active = 1").fetchone()["c"]
+        commits_count = conn.execute("SELECT COUNT(*) as c FROM seen_commits").fetchone()["c"]
+        runs_count = conn.execute("SELECT COUNT(*) as c FROM seen_workflow_runs").fetchone()["c"]
+        notifs_count = conn.execute("SELECT COUNT(*) as c FROM notification_history").fetchone()["c"]
+
+        recent_alerts = conn.execute("""
+        SELECT timestamp, event_type, repo_name, title, message, urgency
+        FROM notification_history
+        ORDER BY id DESC LIMIT 5
+        """).fetchall()
+
+        watched_list = conn.execute("SELECT repo_name, added_at, last_polled FROM watched_repos WHERE is_active = 1").fetchall()
+        conn.close()
+
+        lines = [
+            "🐙 **Estado de Telemetría — GitHub Activity & Actions Monitor**",
+            f"• **Repositorios Monitoreados:** `{watched_count}`",
+            f"• **Commits Rastreados:** `{commits_count}`",
+            f"• **Workflows Evaluados:** `{runs_count}`",
+            f"• **Alertas Emitidas:** `{notifs_count}`\n",
+            "📌 **Repositorios Activos:**"
+        ]
+        for r in watched_list:
+            last = r["last_polled"] or "Pendiente de polling"
+            lines.append(f"  • `{r['repo_name']}` (Último check: {last})")
+
+        if recent_alerts:
+            lines.append("\n🔔 **Últimas Alertas Enviadas al Escritorio:**")
+            for a in recent_alerts:
+                lines.append(f"  • [{a['urgency'].upper()}] `{a['repo_name']}` — *{a['title']}* ({a['timestamp']})")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error consultando monitor de GitHub: {e}"
+
+
+def tool_github_watch_repo(repo_name: str) -> str:
+    """Agrega un repositorio al monitoreo permanente."""
+    clean_repo = repo_name.strip()
+    if "/" not in clean_repo:
+        return f"Error: '{clean_repo}' no es válido. Debe tener formato 'propietario/repo' (ej: 'dantecc10/ai-lab')."
+    
+    try:
+        from scripts.tools.github_monitor import GitHubMonitor
+        monitor = GitHubMonitor()
+        added = monitor.add_watched_repo(clean_repo)
+        if added:
+            return f"✅ Repositorio `{clean_repo}` agregado al monitoreo permanente de GitHub."
+        else:
+            return f"ℹ️ El repositorio `{clean_repo}` ya estaba en la lista de monitoreo."
+    except Exception as e:
+        return f"Error agregando repositorio a monitoreo: {e}"
+
+
+def tool_github_unwatch_repo(repo_name: str) -> str:
+    """Elimina un repositorio del monitoreo permanente."""
+    clean_repo = repo_name.strip()
+    try:
+        from scripts.tools.github_monitor import GitHubMonitor
+        monitor = GitHubMonitor()
+        removed = monitor.remove_watched_repo(clean_repo)
+        if removed:
+            return f"🛑 Repositorio `{clean_repo}` desactivado del monitoreo permanente."
+        else:
+            return f"ℹ️ El repositorio `{clean_repo}` no estaba activo en el monitoreo."
+    except Exception as e:
+        return f"Error desactivando repositorio: {e}"
+
+
+def tool_github_actions_status(repo_name: str = "dantecc10/ai-lab") -> str:
+    """Consulta el estado de GitHub Actions vía gh CLI."""
+    clean_repo = repo_name.strip() if repo_name else "dantecc10/ai-lab"
+    try:
+        res = subprocess.run(
+            ["gh", "run", "list", "-R", clean_repo, "-L", "5"],
+            capture_output=True, text=True, timeout=10
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return f"🚀 **GitHub Actions Runs (`{clean_repo}`):**\n\n```\n{res.stdout.strip()}\n```"
+        elif res.stderr:
+            return f"⚠️ Error consultando Actions: {res.stderr.strip()}"
+        return f"No se encontraron ejecuciones de workflows para `{clean_repo}`."
+    except Exception as e:
+        return f"Error ejecutando gh run list: {e}"
+
+
+def tool_control_keyboard_backlight(level: str = "off") -> str:
+    """Controla el brillo del teclado ASUS ROG/TUF ('off', 'low', 'med', 'high')."""
+    lvl = level.lower().strip()
+    if lvl not in ["off", "low", "med", "high"]:
+        lvl = "off"
+    try:
+        if shutil.which("asusctl"):
+            res = subprocess.run(["asusctl", "leds", "set", lvl], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                return f"💡 Luz del teclado configurada en: {lvl.upper()}"
+            return f"Error asusctl: {res.stderr.strip()}"
+        return "asusctl no encontrado en el sistema."
+    except Exception as e:
+        return f"Error al cambiar brillo del teclado: {e}"
+
+
+def tool_execute_sleep_routine(shutdown_pc: bool = False) -> str:
+    """
+    Ejecuta la rutina nocturna:
+    - Lux: APAGAR
+    - ElektroDante: ENCENDER / MANTENER ENCENDIDO
+    - Si shutdown_pc es False: Apaga el teclado con asusctl leds set off
+    - Si shutdown_pc es True: Ejecuta apagado del equipo
+    """
+    import threading
+    import time
+    from kasa import Discover
+
+    actions_done = []
+
+    async def _run_kasa_sleep():
+        try:
+            lux = await Discover.discover_single("192.168.1.71")
+            await lux.update()
+            await lux.turn_off()
+            actions_done.append("Lux (Luz de habitación): Apagada")
+        except Exception as e:
+            actions_done.append(f"Error Lux: {e}")
+
+        try:
+            ed = await Discover.discover_single("192.168.1.70")
+            await ed.update()
+            await ed.turn_on()
+            actions_done.append("ElektroDante (Carga nocturna): Encendido")
+        except Exception as e:
+            actions_done.append(f"Error ElektroDante: {e}")
+
+    try:
+        asyncio.run(_run_kasa_sleep())
+    except Exception as e:
+        actions_done.append(f"Error general Kasa: {e}")
+
+    if not shutdown_pc:
+        tool_control_keyboard_backlight("off")
+        actions_done.append("Luz del Teclado: Apagada al mínimo (0)")
+        actions_done.append("Computadora: Permanece encendida")
+        return "🌙 Rutina de Dormir Ejecutada:\n" + "\n".join(f"• {a}" for a in actions_done) + "\n\n😴 ¡Que descanses!"
+    else:
+        actions_done.append("Computadora: Apagando sistema en 3 segundos...")
+        def _delayed_shutdown():
+            time.sleep(3)
+            subprocess.run("shutdown -h now", shell=True)
+
+        threading.Thread(target=_delayed_shutdown, daemon=True).start()
+        return "👋 Rutina de Despedida:\n" + "\n".join(f"• {a}" for a in actions_done) + "\n\n💤 Hasta mañana."
+
+
+def tool_audit_git_repositories(base_dir: str = "/media/darkseid/DATA/Repos") -> str:
+    """Audita todos los repositorios en /media/darkseid/DATA/Repos."""
+    try:
+        from git_repository_auditor import GitRepositoryAuditor
+        auditor = GitRepositoryAuditor(base_dir=Path(base_dir))
+        return auditor.generate_report(max_items=25)
+    except Exception as e:
+        return f"Error auditando repositorios: {e}"
+
+
+def tool_trigger_visual_alert(
+    level: str = "normal",
+    duration: float = None,
+    style: str = None,
+    colors: list = None,
+    speed_ms: int = None,
+    include_lamp: bool = False
+) -> str:
+    """Reproduce una secuencia libre de animación cromática en teclado ASUS y lámpara Lux."""
+    try:
+        from visual_notifier import notifier
+        if style or colors:
+            return notifier.animate(style=style, colors=colors, duration=duration, speed_ms=speed_ms, include_lamp=include_lamp)
+        return notifier.animate(level=level, duration=duration, speed_ms=speed_ms, include_lamp=include_lamp)
+    except Exception as e:
+        return f"Error activando alerta visual: {e}"
+
+
+# ── Recordatorios & Temporizadores ────────────────────────
+def tool_reminder_add(title: str, due: str, priority: str = "normal") -> str:
+    """Programa un recordatorio o temporizador omnicanal."""
+    try:
+        from reminder_engine import reminder_engine
+        res = reminder_engine.add_reminder(title=title, due=due, priority=priority)
+        return f"⏰ Recordatorio programado [#{res['id']}]: '{res['title']}' para dentro de {res['time_left']} ({res['due_at']}) [Prioridad: {res['priority'].upper()}]"
+    except Exception as e:
+        return f"Error programando recordatorio: {e}"
+
+
+def tool_reminder_list() -> str:
+    """Lista los recordatorios y temporizadores pendientes."""
+    try:
+        from reminder_engine import reminder_engine
+        items = reminder_engine.list_pending_reminders()
+        if not items:
+            return "No hay recordatorios pendientes."
+        lines = [f"📋 Recordatorios pendientes ({len(items)}):"]
+        for i in items:
+            lines.append(f"  • [#{i['id']}] {i['title']} ➔ Vence en {i['time_left']} ({i['due_at']}) [{i['priority'].upper()}]")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error listando recordatorios: {e}"
+
+
+def tool_reminder_cancel(reminder_id: int) -> str:
+    """Cancela un recordatorio por ID."""
+    try:
+        from reminder_engine import reminder_engine
+        ok = reminder_engine.cancel_reminder(int(reminder_id))
+        if ok:
+            return f"✅ Recordatorio #{reminder_id} cancelado."
+        return f"No se encontró el recordatorio #{reminder_id}."
+    except Exception as e:
+        return f"Error cancelando recordatorio: {e}"
+
+
+# ── Dev Ops & Control Remoto ─────────────────────────────
+def tool_dev_system_telemetry() -> str:
+    """Obtiene dashboard completo de telemetría dev en tiempo real."""
+    try:
+        from dev_controller import dev_controller
+        return dev_controller.get_system_telemetry()
+    except Exception as e:
+        return f"Error en telemetría dev: {e}"
+
+
+def tool_dev_service_control(service_name: str, action: str = "status") -> str:
+    """Gestiona servicios systemd de IA."""
+    try:
+        from dev_controller import dev_controller
+        return dev_controller.manage_service(service_name, action)
+    except Exception as e:
+        return f"Error gestionando servicio {service_name}: {e}"
+
+
+def tool_dev_process_monitor(count: int = 5) -> str:
+    """Monitorea los procesos con mayor consumo de CPU y RAM."""
+    try:
+        from dev_controller import dev_controller
+        return dev_controller.get_top_processes(count)
+    except Exception as e:
+        return f"Error monitoreando procesos: {e}"
+
+
+def tool_dev_git_quick_action(repo_path_or_name: str, git_command: str = "status") -> str:
+    """Ejecuta acciones git en repositorios de /media/darkseid/DATA/Repos."""
+    try:
+        from dev_controller import dev_controller
+        return dev_controller.git_repo_action(repo_path_or_name, git_command)
+    except Exception as e:
+        return f"Error en acción git: {e}"
+
+
+# ── Media, Audio & Video Processing (Whisper + yt-dlp) ────
+def tool_media_download_url(url: str, media_type: str = "audio") -> str:
+    """Descarga audio o video de YouTube con yt-dlp."""
+    try:
+        from media_processor import media_processor
+        res = media_processor.download_media(url, media_type=media_type)
+        return f"📥 Descarga lista: '{res['title']}' ({res['media_type'].upper()}, {res['file_size_mb']}MB) en: {res['file_path']}"
+    except Exception as e:
+        return f"Error descargando multimedia: {e}"
+
+
+def tool_media_transcribe_audio(url_or_path: str) -> str:
+    """Transcribe un archivo de audio local o video de YouTube con Whisper STT."""
+    try:
+        from media_processor import media_processor
+        res = media_processor.process_and_transcribe(url_or_path)
+        return f"🎙️ Transcripción Whisper de '{res['title']}' ({res['word_count']} palabras):\n\n{res['text'][:3500]}"
+    except Exception as e:
+        return f"Error transcribiendo audio con Whisper: {e}"
+
+
+def tool_media_summarize_content(url_or_path: str) -> str:
+    """Descarga, transcribe con Whisper y genera resumen inteligente con Gemma 4."""
+    try:
+        from media_processor import media_processor
+        res = media_processor.summarize_video_or_audio(url_or_path)
+        return res.get("summary") or "Sin resumen disponible."
+    except Exception as e:
+        return f"Error resumiendo contenido con Whisper y Gemma 4: {e}"
+
+
+# ── Voz Creativa & Estudio (Kokoro-82M) ───────────────────
+def tool_voice_creative_generate(text: str, voice: str = "em_santa", speed: float = 1.0) -> str:
+    """Genera audio de voz con entonación de estudio en CPU."""
+    try:
+        from creative_voice_engine import creative_voice_engine
+        res = creative_voice_engine.synthesize(text, voice=voice, speed=float(speed), output_format="ogg")
+        return f"🎙️ Audio de alta fidelidad generado: '{res['voice_name']}' ({res['style']}, {res['duration_sec']}s) en: {res['file_path']}"
+    except Exception as e:
+        return f"Error generando voz creativa: {e}"
+
+
+def tool_voice_speak_notification(message: str, voice: str = "bm_george", visual_style: str = "synthwave") -> str:
+    """Emite una notificación hablada por los altavoces de la PC con aviso visual."""
+    try:
+        from creative_voice_engine import creative_voice_engine
+        res = creative_voice_engine.speak_notification(
+            message=message,
+            voice=voice,
+            play_local=True,
+            visual_style=visual_style
+        )
+        return f"🔊 Notificación hablada emitida con voz '{res['voice_name']}': '{message}'"
+    except Exception as e:
+        return f"Error emitiendo notificación hablada: {e}"
+
+
+def tool_voice_creative_list() -> str:
+    """Lista el catálogo de voces expresivas disponibles."""
+    try:
+        from creative_voice_engine import creative_voice_engine
+        voices = creative_voice_engine.list_voices()
+        lines = ["🎭 Catálogo de Voces de Alta Fidelidad (Kokoro-82M):"]
+        for v in voices:
+            lines.append(f"  • [{v['id']}] {v['name']} ({v['gender']} - {v['style']}): {v['desc']}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error consultando voces: {e}"
+
+
+# ── Generación de Imagen (Diffusers / ComfyUI) ───────────
+def tool_image_ai_generate(prompt: str, aspect_ratio: str = "1:1") -> str:
+    """Genera una imagen con IA a partir de un prompt."""
+    try:
+        from image_generator import image_generator
+        res = image_generator.generate_image(prompt=prompt, aspect_ratio=aspect_ratio)
+        return f"🎨 Imagen generada ({res['width']}x{res['height']}, {res['gen_time_sec']}s): {res['file_path']}"
+    except Exception as e:
+        return f"Error generando imagen: {e}"
 
 
 # ── Tool Implementations ──────────────────────────────────
@@ -3026,7 +4607,7 @@ def tool_search_files(pattern: str, path: str = None) -> str:
         return f"Error en búsqueda: {e}"
 
 
-def tool_read_file(path: str, max_lines: int = 200) -> str:
+def tool_read_file(path: str, start_line: int = 1, end_line: Optional[int] = None, max_lines: int = 200) -> str:
     target = safe_path(path)
     if not os.path.exists(target):
         return f"Error: No existe: {target}"
@@ -3038,15 +4619,33 @@ def tool_read_file(path: str, max_lines: int = 200) -> str:
         if file_size > MAX_FILE_SIZE:
             return f"Error: Archivo demasiado grande ({format_size(file_size)}). Máximo: {format_size(MAX_FILE_SIZE)}"
 
+        start_line = max(1, start_line or 1)
         with open(target, "r", errors="replace") as f:
-            lines = []
-            for i, line in enumerate(f):
-                if i >= max_lines:
-                    lines.append(f"\n... (truncado, {max_lines} líneas mostradas)")
-                    break
-                lines.append(line.rstrip())
+            all_lines = f.readlines()
 
-        return "\n".join(lines)
+        total_lines = len(all_lines)
+        if total_lines == 0:
+            return "📄 (Archivo vacío)"
+
+        start_idx = start_line - 1
+        if start_idx >= total_lines:
+            return f"Error: start_line ({start_line}) supera el total de líneas del archivo ({total_lines})."
+
+        if end_line is not None:
+            end_idx = min(total_lines, max(start_line, end_line))
+        else:
+            end_idx = min(total_lines, start_idx + max_lines)
+
+        selected = all_lines[start_idx:end_idx]
+        formatted = []
+        for i, line in enumerate(selected, start=start_line):
+            formatted.append(f"{i:4d} | {line.rstrip()}")
+
+        header = f"📄 {target} (Líneas {start_line}-{start_line + len(selected) - 1} de {total_lines}):\n"
+        result = header + "\n".join(formatted)
+        if end_idx < total_lines and end_line is None:
+            result += f"\n... ({total_lines - end_idx} líneas restantes no mostradas)"
+        return result
     except Exception as e:
         return f"Error leyendo archivo: {e}"
 
@@ -3067,6 +4666,99 @@ def tool_write_file(path: str, content: str, append: bool = False) -> str:
         return f"✅ Archivo {action}: {target} ({format_size(size)})"
     except Exception as e:
         return f"Error escribiendo archivo: {e}"
+
+
+def tool_append_to_file(path: str, content: str) -> str:
+    target = safe_path(path)
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        if not content.startswith("\n") and os.path.exists(target) and os.path.getsize(target) > 0:
+            with open(target, "rb") as f:
+                f.seek(-1, os.SEEK_END)
+                last_char = f.read(1)
+                if last_char != b"\n":
+                    content = "\n" + content
+
+        with open(target, "a") as f:
+            f.write(content)
+
+        size = os.path.getsize(target)
+        log_operation("append_to_file", {"path": path}, f"agregado ({format_size(size)})")
+        return f"✅ Contenido agregado exitosamente al final de {target} ({format_size(size)})"
+    except Exception as e:
+        return f"Error anexando a archivo: {e}"
+
+
+def tool_replace_file_content(path: str, target_content: str, replacement_content: str) -> str:
+    target = safe_path(path)
+    if not os.path.exists(target):
+        return f"Error: No existe: {target}"
+    if os.path.isdir(target):
+        return f"Error: Es un directorio: {target}"
+
+    try:
+        with open(target, "r", errors="replace") as f:
+            data = f.read()
+
+        count = data.count(target_content)
+        if count == 0:
+            return f"❌ Error: No se encontró 'target_content' en {target}. Verifica los espacios y caracteres exactos."
+        if count > 1:
+            return f"⚠️ Advertencia: 'target_content' aparece {count} veces en el archivo. Proporciona más contexto alrededor para que sea único."
+
+        new_data = data.replace(target_content, replacement_content, 1)
+        with open(target, "w") as f:
+            f.write(new_data)
+
+        size = os.path.getsize(target)
+        log_operation("replace_file_content", {"path": path}, f"reemplazado ({format_size(size)})")
+        return f"✅ Contenido reemplazado quirúrgicamente con éxito en {target} ({format_size(size)})"
+    except Exception as e:
+        return f"Error reemplazando contenido: {e}"
+
+
+def tool_compact_context(content: str) -> str:
+    """Compacta y sintetiza texto o un bloque de conversación usando el endpoint local LLM."""
+    try:
+        import urllib.request
+        import json
+
+        system_prompt = (
+            "Eres un motor de compactación y síntesis de memoria conversacional. Tu objetivo es resumir "
+            "exhaustivamente el texto o historial proporcionado para preservar el contexto completo en una fracción de tokens.\n\n"
+            "Estructura el resumen en viñetas densas:\n"
+            "• 🎯 **Objetivos y Estado**: Solicitudes del usuario, tareas completadas y pendientes.\n"
+            "• 📁 **Archivos y Rutas**: Rutas leídas, creadas o editadas y su propósito.\n"
+            "• ⚙️ **Decisiones Técnicas y Comandos**: Arquitectura, variables, parámetros, fórmulas o comandos ejecutados.\n"
+            "• 💡 **Preferencias del Usuario**: Notación, idioma o directrices explícitas.\n\n"
+            "Sé denso, objetivo y conciso."
+        )
+
+        payload = {
+            "model": "/home/darkseid/llama.cpp/ai-models/gemma-4-12b-it-Q4_K_M.gguf",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Por favor compacta el siguiente contenido:\n\n{content}"}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 2048
+        }
+
+        req = urllib.request.Request(
+            "http://127.0.0.1:9090/v1/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            summary = data["choices"][0]["message"]["content"]
+            log_operation("compact_context", {"chars_in": len(content), "chars_out": len(summary)}, "compactado con éxito")
+            return f"🗜️ **Contexto compactado con éxito:**\n\n{summary}"
+
+    except Exception as e:
+        return f"⚠️ Error en compactación de contexto: {e}"
+
 
 
 def tool_run_command(command: str, confirm: bool = False) -> str:
@@ -3680,31 +5372,114 @@ NOTES_DIR = os.path.join(HOME, ".notes")
 MEMORY_DB = os.path.join(HOME, ".config/ai-memory.db")
 
 
+def capture_desktop_screen(target_path: str = None) -> Optional[str]:
+    """Captura de pantalla silenciosa y ultra-rápida (0 Popups, 0.05s)."""
+    dest = Path(target_path) if target_path else Path(HOME) / "Pictures/screenshots" / f"screenshot_{int(time.time())}.png"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    env = os.environ.copy()
+    if "DISPLAY" not in env:
+        env["DISPLAY"] = ":1" if os.path.exists("/tmp/.X11-unix/X1") else ":0"
+
+    # 1. maim (X11 / XWayland nativo — 100% Silencioso, 0 Popups, 0.05s)
+    if shutil.which("maim"):
+        try:
+            res = subprocess.run(["maim", str(dest)], env=env, capture_output=True, timeout=4)
+            if dest.exists() and dest.stat().st_size > 0:
+                return str(dest)
+        except Exception:
+            pass
+
+    # 2. cosmic-screenshot (Pop!_OS COSMIC Wayland Portal)
+    if shutil.which("cosmic-screenshot"):
+        try:
+            res = subprocess.run([
+                "cosmic-screenshot",
+                "--interactive=false",
+                "--notify=false",
+                "--save-dir", str(dest.parent)
+            ], env=env, capture_output=True, text=True, timeout=5)
+            out_file = res.stdout.strip()
+            if out_file and os.path.exists(out_file):
+                if out_file != str(dest):
+                    shutil.move(out_file, str(dest))
+                return str(dest)
+            import glob
+            pngs = sorted(glob.glob(str(dest.parent / "Screenshot_*.png")), key=os.path.getmtime, reverse=True)
+            if pngs and os.path.exists(pngs[0]):
+                if pngs[0] != str(dest):
+                    shutil.move(pngs[0], str(dest))
+                return str(dest)
+        except Exception:
+            pass
+
+    # 3. import (ImageMagick)
+    if shutil.which("import"):
+        try:
+            res = subprocess.run(["import", "-window", "root", str(dest)], env=env, capture_output=True, timeout=4)
+            if dest.exists() and dest.stat().st_size > 0:
+                return str(dest)
+        except Exception:
+            pass
+
+    # 4. gnome-screenshot (Fallback)
+    if shutil.which("gnome-screenshot"):
+        try:
+            res = subprocess.run(["gnome-screenshot", "-f", str(dest)], env=env, capture_output=True, timeout=4)
+            if dest.exists() and dest.stat().st_size > 0:
+                return str(dest)
+        except Exception:
+            pass
+
+    return None
+
+
 def tool_screenshot(filename: str = None, delay: int = 0) -> str:
     try:
         screenshots_dir = os.path.join(HOME, "Pictures/screenshots")
         os.makedirs(screenshots_dir, exist_ok=True)
 
         if not filename:
-            filename = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-        filepath = os.path.join(screenshots_dir, f"{filename}.png")
+        if not filename.endswith(".png"):
+            filename += ".png"
 
-        cmd = ["gnome-screenshot", "-f", filepath]
+        filepath = os.path.join(screenshots_dir, filename)
+
         if delay > 0:
-            cmd = ["gnome-screenshot", "-d", str(delay), "-f", filepath]
+            time.sleep(delay)
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        captured_path = capture_desktop_screen(filepath)
 
-        if os.path.exists(filepath):
-            size = format_size(os.path.getsize(filepath))
+        if captured_path and os.path.exists(captured_path) and os.path.getsize(captured_path) > 0:
+            size = format_size(os.path.getsize(captured_path))
             log_operation("screenshot", {"filename": filename}, f"saved {size}")
-            return f"Screenshot guardada: {filepath} ({size})"
 
-        return f"Error: No se pudo crear la screenshot"
+            # Extracción OCR automática de lo que se ve en pantalla
+            ocr_text = ""
+            if shutil.which("tesseract"):
+                try:
+                    ocr_proc = subprocess.run(
+                        ["tesseract", captured_path, "stdout", "-l", "spa+eng"],
+                        capture_output=True,
+                        text=True,
+                        timeout=6
+                    )
+                    clean_ocr = ocr_proc.stdout.strip()
+                    if clean_ocr:
+                        ocr_text = f"\n\n🔍 **Contenido e Interfaz Visual Detectados en Pantalla (OCR):**\n```text\n{clean_ocr[:1500]}\n```"
+                except Exception:
+                    pass
 
-    except FileNotFoundError:
-        return "Error: gnome-screenshot no encontrado"
+            return (
+                f"📸 **Captura de pantalla realizada exitosamente:** `{captured_path}` ({size})"
+                f"{ocr_text}\n\n"
+                f"💡 *Para renderizar la imagen directamente en la interfaz del chat, ejecuta `media_view(file_path=\"{captured_path}\")`.*"
+            )
+
+        return f"Error: No se pudo crear la screenshot (Compositor Wayland/X11 no accesible)"
+
     except Exception as e:
         return f"Error creando screenshot: {e}"
 
@@ -3967,32 +5742,83 @@ def tool_memory_search(query: str, category: str = None, limit: int = 10) -> str
         cursor = conn.cursor()
 
         if category:
-            cursor.execute(
-                "SELECT * FROM memories WHERE category = ? AND (content LIKE ? OR title LIKE ? OR tags LIKE ?) ORDER BY created_at DESC LIMIT ?",
-                (category, f"%{query}%", f"%{query}%", f"%{query}%", limit)
-            )
+            cursor.execute("SELECT * FROM memories WHERE category = ? ORDER BY created_at DESC", (category,))
         else:
-            cursor.execute(
-                "SELECT * FROM memories WHERE content LIKE ? OR title LIKE ? OR tags LIKE ? ORDER BY created_at DESC LIMIT ?",
-                (f"%{query}%", f"%{query}%", f"%{query}%", limit)
-            )
+            cursor.execute("SELECT * FROM memories ORDER BY created_at DESC")
 
         rows = cursor.fetchall()
         conn.close()
 
         if not rows:
-            return f"No se encontraron resultados para: {query}"
+            return f"No hay entradas registradas en la memoria (categoría: {category or 'todas'})."
 
-        lines = [f"🔍 Resultados para '{query}' ({len(rows)} entradas):\n"]
-        for row in rows:
-            tags_str = f" [{row['tags']}]" if row['tags'] else ""
-            lines.append(f"  [{row['id']}] {row['category']}: {row['title'] or row['content'][:60]}{tags_str}")
-            lines.append(f"      {row['created_at']}")
+        # Búsqueda tokenizada multitérmino con puntuación de relevancia
+        terms = [t.strip().lower() for t in query.split() if len(t.strip()) > 1]
+        query_lower = query.lower().strip()
+
+        scored_results = []
+        for r in rows:
+            title_text = (r['title'] or "").lower()
+            content_text = (r['content'] or "").lower()
+            tags_text = (r['tags'] or "").lower()
+            combined_text = f"{title_text} {tags_text} {content_text}"
+
+            score = 0
+            if query_lower in combined_text:
+                score += 100
+            if query_lower in title_text:
+                score += 50
+
+            for term in terms:
+                if term in title_text:
+                    score += 35
+                if term in tags_text:
+                    score += 30
+                if term in content_text:
+                    score += 15
+
+            if score > 0:
+                scored_results.append((score, r))
+
+        scored_results.sort(key=lambda x: x[0], reverse=True)
+        top_matches = scored_results[:limit]
+
+        if not top_matches:
+            return f"🔍 No se encontraron coincidencias directas para '{query}' en memoria. Usa `memory_list` para ver el catálogo de entradas."
+
+        lines = [f"🧠 Memorias recuperadas para '{query}' ({len(top_matches)} resultados):\n"]
+        for score, row in top_matches:
+            tags_str = f" [tags: {row['tags']}]" if row['tags'] else ""
+            lines.append(f"📌 [ID: {row['id']}] [{row['category'].upper()}] {row['title'] or 'Sin título'}{tags_str}")
+            lines.append(f"   {row['content']}")
+            lines.append(f"   📅 Guardado: {row['created_at']}")
+            lines.append("-" * 40)
 
         return "\n".join(lines)
 
     except Exception as e:
         return f"Error buscando en memoria: {e}"
+
+
+def tool_memory_get(id: int) -> str:
+    try:
+        conn = _get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM memories WHERE id = ?", (id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return f"No se encontró ninguna memoria con ID {id}."
+
+        tags_str = f" [tags: {row['tags']}]" if row['tags'] else ""
+        return (
+            f"📌 [ID: {row['id']}] [{row['category'].upper()}] {row['title'] or 'Sin título'}{tags_str}\n"
+            f"   {row['content']}\n"
+            f"   📅 Creado: {row['created_at']}"
+        )
+    except Exception as e:
+        return f"Error recuperando memoria ID {id}: {e}"
 
 
 def tool_memory_context(category: str = None, limit: int = 5) -> str:
@@ -4015,12 +5841,12 @@ def tool_memory_context(category: str = None, limit: int = 5) -> str:
         conn.close()
 
         if not rows:
-            return "No hay entradas en memoria"
+            return "No hay entradas en memoria."
 
         lines = ["📚 Contexto de memoria reciente:\n"]
         for row in rows:
-            lines.append(f"[{row['category']}] {row['title'] or 'Sin título'}")
-            lines.append(f"  {row['content'][:200]}")
+            lines.append(f"📌 [{row['category'].upper()}] {row['title'] or 'Sin título'}")
+            lines.append(f"   {row['content']}")
             lines.append("")
 
         return "\n".join(lines)
@@ -4029,7 +5855,7 @@ def tool_memory_context(category: str = None, limit: int = 5) -> str:
         return f"Error obteniendo contexto: {e}"
 
 
-def tool_memory_list(limit: int = 20) -> str:
+def tool_memory_list(limit: int = 30) -> str:
     try:
         conn = _get_db()
         cursor = conn.cursor()
@@ -4038,11 +5864,14 @@ def tool_memory_list(limit: int = 20) -> str:
         conn.close()
 
         if not rows:
-            return "No hay entradas en memoria"
+            return "No hay entradas en memoria."
 
-        lines = [f"📋 Memoria ({len(rows)} entradas):\n"]
+        lines = [f"📋 Catálogo de memorias de Dante ({len(rows)} entradas):\n"]
         for row in rows:
-            lines.append(f"  [{row['id']}] {row['category']}: {row['title'] or row['content'][:50]}")
+            tags_str = f" [{row['tags']}]" if row['tags'] else ""
+            preview = row['content'][:110].replace("\n", " ") + ("..." if len(row['content']) > 110 else "")
+            lines.append(f"  • [ID: {row['id']}] [{row['category'].upper()}] {row['title'] or 'Sin título'}{tags_str}")
+            lines.append(f"    ↪ {preview}")
 
         return "\n".join(lines)
 
@@ -4293,6 +6122,194 @@ def tool_network_info() -> str:
 
     except Exception as e:
         return f"Error obteniendo info de red: {e}"
+
+
+def tool_network_arp_table() -> str:
+    """Muestra la tabla de resolución ARP (Capa 2/3) con IPs, MACs e interfaces sin requerir root."""
+    try:
+        if not os.path.exists("/proc/net/arp"):
+            return "❌ /proc/net/arp no disponible en este sistema."
+        with open("/proc/net/arp") as f:
+            lines = f.readlines()
+        if len(lines) <= 1:
+            return "ℹ️ Tabla ARP vacía."
+        
+        entries = []
+        for line in lines[1:]:
+            parts = line.split()
+            if len(parts) >= 6:
+                ip, hw_type, flags, mac, mask, dev = parts[:6]
+                if mac != "00:00:00:00:00:00":
+                    entries.append(f"• **IP:** `{ip:<15}` | **MAC:** `{mac}` | **Interfaz:** `{dev}`")
+        
+        return "📡 **Tabla ARP del Sistema (Dispositivos Vecinos Descubiertos):**\n\n" + ("\n".join(entries) if entries else "No se detectaron vecinos con MAC válida.")
+    except Exception as e:
+        return f"Error leyendo tabla ARP: {e}"
+
+
+def tool_network_scan_subnet(subnet_base: str = "172.31.0", start_ip: int = 1, end_ip: int = 50, timeout_ms: int = 150) -> str:
+    """Escanea un rango de IPs de forma concurrente sin requerir permisos de root (ICMP + TCP Connect)."""
+    import concurrent.futures
+    import socket
+    
+    start_ip = max(1, min(start_ip, 254))
+    end_ip = max(start_ip, min(end_ip, 254))
+    timeout = timeout_ms / 1000.0
+
+    def probe_host(target_ip):
+        # 1. ICMP Ping rápido (1 paquete)
+        try:
+            r = subprocess.run(["ping", "-c", "1", "-W", "1", target_ip], capture_output=True, timeout=1.2)
+            if r.returncode == 0:
+                rtt = "OK"
+                for l in r.stdout.decode().splitlines():
+                    if "time=" in l:
+                        rtt = l.split("time=")[1].split()[0] + "ms"
+                return {"ip": target_ip, "status": "active", "method": "ICMP", "rtt": rtt}
+        except Exception:
+            pass
+
+        # 2. TCP Connect probe en puertos comunes
+        for port in [80, 443, 22, 53, 445, 8080, 3000, 8000]:
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(timeout)
+                if s.connect_ex((target_ip, port)) == 0:
+                    s.close()
+                    return {"ip": target_ip, "status": "active", "method": f"TCP:{port}", "rtt": f"<{timeout_ms}ms"}
+                s.close()
+            except Exception:
+                pass
+
+        return None
+
+    active_hosts = []
+    ips_to_scan = [f"{subnet_base}.{i}" for i in range(start_ip, end_ip + 1)]
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(50, len(ips_to_scan))) as executor:
+        results = executor.map(probe_host, ips_to_scan)
+        for res in results:
+            if res:
+                active_hosts.append(res)
+
+    if not active_hosts:
+        return f"🔍 **Escaneo de Red ({subnet_base}.{start_ip} - {end_ip}):**\nNo se detectaron hosts respondiendo en este rango (podrían tener ICMP/TCP filtrado por firewall de red)."
+
+    output = [f"🌐 **Escaneo de Subred ({subnet_base}.{start_ip} - {end_ip}) — {len(active_hosts)} Hosts Activos:**\n"]
+    for h in active_hosts:
+        output.append(f"• 🟢 `{h['ip']:<15}` — Respuesta vía **{h['method']}** (Latencia: {h['rtt']})")
+    
+    return "\n".join(output)
+
+
+def tool_network_port_scan(target_ip: str, ports: str = "21,22,23,25,53,80,110,139,443,445,3000,3306,5432,8000,8080,9090", timeout_ms: int = 250) -> str:
+    """Escanea puertos TCP en un objetivo específico para auditoría de Capa 4 (Transporte) sin requerir root."""
+    import socket
+    import concurrent.futures
+
+    try:
+        port_list = [int(p.strip()) for p in ports.split(",") if p.strip().isdigit()]
+    except Exception:
+        port_list = [22, 80, 443, 8080, 9090]
+
+    timeout = timeout_ms / 1000.0
+    common_services = {
+        21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS",
+        80: "HTTP", 110: "POP3", 139: "NetBIOS", 443: "HTTPS", 445: "SMB",
+        3000: "Dev Server (Node/React)", 3306: "MySQL", 5432: "PostgreSQL",
+        8000: "HTTP Alt / Django", 8080: "HTTP Proxy / Tomcat", 9090: "llama.cpp / Gemma 4"
+    }
+
+    def check_port(p):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(timeout)
+            code = s.connect_ex((target_ip, p))
+            s.close()
+            if code == 0:
+                service = common_services.get(p, "Desconocido")
+                return {"port": p, "state": "OPEN", "service": service}
+        except Exception:
+            pass
+        return None
+
+    open_ports = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        for res in executor.map(check_port, port_list):
+            if res:
+                open_ports.append(res)
+
+    if not open_ports:
+        return f"🔒 **Escaneo de Puertos en `{target_ip}`:**\nTodos los puertos analizados ({len(port_list)} puertos) están cerrados o filtrados por firewall."
+
+    lines = [f"🔌 **Puertos Abiertos en `{target_ip}` ({len(open_ports)}/{len(port_list)} detectados):**\n"]
+    for item in sorted(open_ports, key=lambda x: x["port"]):
+        lines.append(f"• Puerto **{item['port']:<5}/TCP** — 🟢 `ABIERTO` ({item['service']})")
+    
+    return "\n".join(lines)
+
+
+def tool_network_interfaces_detailed() -> str:
+    """Inspección detallada de interfaces de red, IPs, MACs, MTU y estadísticas de tráfico RX/TX."""
+    try:
+        report = []
+        net_dir = "/sys/class/net"
+        if os.path.exists(net_dir):
+            for iface in sorted(os.listdir(net_dir)):
+                iface_path = os.path.join(net_dir, iface)
+                if not os.path.isdir(iface_path):
+                    continue
+                
+                operstate = "unknown"
+                try:
+                    with open(os.path.join(iface_path, "operstate")) as f:
+                        operstate = f.read().strip()
+                except Exception:
+                    pass
+                
+                mac = "N/A"
+                try:
+                    with open(os.path.join(iface_path, "address")) as f:
+                        mac = f.read().strip()
+                except Exception:
+                    pass
+
+                rx_bytes = 0
+                tx_bytes = 0
+                try:
+                    with open(os.path.join(iface_path, "statistics/rx_bytes")) as f:
+                        rx_bytes = int(f.read().strip())
+                    with open(os.path.join(iface_path, "statistics/tx_bytes")) as f:
+                        tx_bytes = int(f.read().strip())
+                except Exception:
+                    pass
+
+                status_icon = "🟢" if operstate == "up" else "⚪"
+                rx_mb = rx_bytes / (1024 * 1024)
+                tx_mb = tx_bytes / (1024 * 1024)
+                
+                report.append(f"{status_icon} **`{iface}`** ({operstate.upper()}):\n   • MAC: `{mac}`\n   • Tráfico: RX: `{rx_mb:.1f} MB` | TX: `{tx_mb:.1f} MB`")
+
+        route_proc = subprocess.run(["ip", "route", "show", "default"], capture_output=True, text=True)
+        default_route = route_proc.stdout.strip() or "No default route"
+
+        dns_servers = []
+        try:
+            with open("/etc/resolv.conf") as f:
+                for l in f:
+                    if l.startswith("nameserver"):
+                        dns_servers.append(l.split()[1])
+        except Exception:
+            pass
+
+        return (
+            "🌐 **Auditoría de Interfaces y Capa de Enlace (L2/L3):**\n\n"
+            + "\n\n".join(report)
+            + f"\n\n🛣️ **Puerta de Enlace (Default Route):**\n`{default_route}`\n"
+            + f"🔍 **Servidores DNS:** `{', '.join(dns_servers) if dns_servers else 'N/A'}`"
+        )
+    except Exception as e:
+        return f"Error en auditoría de interfaces: {e}"
 
 
 # ── Process Tools ──────────────────────────────────────────
@@ -5373,136 +7390,371 @@ def tool_docker_images() -> str:
     return f"🐳 Imágenes:\n{output}"
 
 
-# ── Chat Export Tools ──────────────────────────────────────
+# ── Chat Export & Share Tools ────────────────────────────────
 CHAT_SHARE_DIR = os.path.join(HOME, "ai-lab/shared-chats")
-CHAT_SHARE_URL = "http://localhost:9094"
+CHATSHARE_API_URL = "http://localhost:9095/api/v1"
 
 
-def tool_chat_export(messages: str, title: str = None) -> str:
+def _process_multimedia_in_messages(msgs: list) -> list:
+    """Sube archivos multimedia locales detectados en los mensajes a Cloudflare R2 (o fallback Data-URI) para compartirlos en internet."""
+    if not isinstance(msgs, list):
+        return msgs
+
+    import base64
+    import mimetypes
+    import re
+
     try:
-        msg_list = json.loads(messages)
-        if not isinstance(msg_list, list):
-            return "Error: messages debe ser un array de objetos"
+        from r2_storage import r2
+    except Exception:
+        r2 = None
 
-        import secrets
-        chat_id = secrets.token_urlsafe(8)
+    processed = []
+    for m in msgs:
+        msg = dict(m)
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            paths = re.findall(r'(/[\w\-./]+\.(?:png|jpg|jpeg|gif|webp|svg|mp3|wav|ogg|m4a|mp4|webm))', content)
+            for path in paths:
+                if os.path.exists(path) and os.path.isfile(path):
+                    file_size = os.path.getsize(path)
+                    
+                    # 1. Si R2 está disponible y configurado, subir a la CDN
+                    if r2 and r2.is_configured:
+                        try:
+                            upload_res = r2.upload_file(path, prefix="chats")
+                            content = content.replace(path, upload_res["url"])
+                            continue
+                        except Exception as e:
+                            log_operation("r2_auto_upload_error", {"path": path}, str(e))
+
+                    # 2. Fallback a Data-URI base64 si el archivo es menor a 15MB
+                    if file_size < 15 * 1024 * 1024:
+                        mime, _ = mimetypes.guess_type(path)
+                        if not mime:
+                            mime = "application/octet-stream"
+                        try:
+                            with open(path, "rb") as f:
+                                b64 = base64.b64encode(f.read()).decode("utf-8")
+                            data_uri = f"data:{mime};base64,{b64}"
+                            content = content.replace(path, data_uri)
+                        except Exception:
+                            pass
+            msg["content"] = content
+        processed.append(msg)
+    return processed
+
+
+def _generate_qr_ascii(url: str) -> str:
+    """Genera una representación visual en bloques Unicode/ASCII del código QR."""
+    try:
+        import qrcode
+        import io
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(url)
+        qr.make(fit=True)
+        f = io.StringIO()
+        qr.print_ascii(out=f, invert=True)
+        f.seek(0)
+        return f.read().strip()
+    except Exception:
+        return ""
+
+
+def tool_chat_export(messages: str, title: str = None, expires_hours: int = 72) -> str:
+    """Guarda y exporta la conversación completa a ChatShare con soporte multimedia, enlace público en ai.castelancarpinteyro.com y QR visual."""
+    try:
+        import urllib.request
+        import urllib.error
+        import urllib.parse
+
+        if isinstance(messages, str):
+            try:
+                msg_list = json.loads(messages)
+            except Exception:
+                msg_list = [{"role": "user", "content": messages}]
+        elif isinstance(messages, list):
+            msg_list = messages
+        else:
+            return "Error: messages debe ser una lista de mensajes o un string JSON"
+
+        # Procesar archivos multimedia locales
+        msg_list = _process_multimedia_in_messages(msg_list)
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
         if not title:
             title = f"Chat_{timestamp}"
 
-        chat_data = {
-            "id": chat_id,
+        # 1. Guardar chat completo en API local
+        create_payload = {
             "title": title,
-            "created_at": datetime.now().isoformat(),
-            "messages": msg_list
+            "messages": msg_list,
+            "metadata": {"source": "mcp", "full_verbose": True, "multimedia_enabled": True}
         }
+        req = urllib.request.Request(f"{CHATSHARE_API_URL}/chats", method="POST")
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, data=json.dumps(create_payload).encode("utf-8"), timeout=5) as resp:
+            chat_res = json.loads(resp.read().decode("utf-8"))
+            chat_id = chat_res["id"]
 
-        os.makedirs(CHAT_SHARE_DIR, exist_ok=True)
+        # 2. Generar token y enlace público
+        share_payload = {
+            "expires_hours": expires_hours,
+            "label": f"Compartido por IA: {title}"
+        }
+        req_share = urllib.request.Request(f"{CHATSHARE_API_URL}/chats/{chat_id}/share", method="POST")
+        req_share.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req_share, data=json.dumps(share_payload).encode("utf-8"), timeout=5) as resp:
+            share_res = json.loads(resp.read().decode("utf-8"))
+            share_url = share_res["url"]
 
-        # Save JSON
-        json_path = os.path.join(CHAT_SHARE_DIR, f"{chat_id}.json")
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(chat_data, f, ensure_ascii=False, indent=2)
+        # 3. Guardar copia local de respaldo
+        try:
+            os.makedirs(CHAT_SHARE_DIR, exist_ok=True)
+            json_path = os.path.join(CHAT_SHARE_DIR, f"{chat_id}.json")
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump({"id": chat_id, "title": title, "url": share_url, "messages": msg_list}, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
-        # Save Markdown
-        md_path = os.path.join(CHAT_SHARE_DIR, f"{chat_id}.md")
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(f"# {title}\n\n")
-            f.write(f"*Exportado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n---\n\n")
-            for msg in msg_list:
-                role = msg.get("role", "unknown")
-                content = msg.get("content", "")
-                if role == "user":
-                    f.write(f"## 👤 Usuario\n\n{content}\n\n")
-                elif role == "assistant":
-                    f.write(f"## 🤖 Asistente\n\n{content}\n\n")
-                f.write("---\n\n")
+        encoded_url = urllib.parse.quote(share_url, safe="")
+        qr_img_url = f"https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data={encoded_url}"
 
-        share_url = f"{CHAT_SHARE_URL}/chat/{chat_id}"
-
-        log_operation("chat_export", {"title": title}, f"{len(msg_list)} messages")
+        log_operation("chat_export", {"title": title}, f"{len(msg_list)} msgs -> {share_url}")
         return (
-            f"✅ Chat exportado: {title}\n\n"
-            f"📎 Enlace: {share_url}\n"
-            f"📄 JSON: {json_path}\n"
-            f"📝 Markdown: {md_path}\n"
-            f"🔢 ID: {chat_id}\n"
-            f"💬 Mensajes: {len(msg_list)}"
+            f"✅ **Conversación completa guardada y compartida**\n\n"
+            f"📝 **Título:** {title}\n"
+            f"🌐 **Enlace Público:** [{share_url}]({share_url})\n"
+            f"⏱️ **Validez:** {expires_hours} horas (Modo Detallado / Minimal + Multimedia interactiva activa)\n"
+            f"💬 **Mensajes incluidos:** {len(msg_list)} (con multimedia, razonamiento y planning completos)\n"
+            f"🔑 **ID:** `{chat_id}`\n\n"
+            f"### 📱 Escanea para abrir en tu celular:\n"
+            f"![Código QR de Acceso]({qr_img_url})"
         )
-
-    except json.JSONDecodeError:
-        return "Error: messages no es JSON válido"
     except Exception as e:
-        return f"Error exportando chat: {e}"
+        return f"Error exportando y compartiendo chat: {e}"
+
+
+def tool_chat_share(chat_id: str, expires_hours: int = 72) -> str:
+    """Genera un enlace público y QR visual para un chat existente por su ID."""
+    try:
+        import urllib.request
+        import urllib.error
+        import urllib.parse
+
+        share_payload = {
+            "expires_hours": expires_hours,
+            "label": f"Enlace compartido {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        }
+        req = urllib.request.Request(f"{CHATSHARE_API_URL}/chats/{chat_id}/share", method="POST")
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, data=json.dumps(share_payload).encode("utf-8"), timeout=5) as resp:
+            share_res = json.loads(resp.read().decode("utf-8"))
+            share_url = share_res["url"]
+
+        encoded_url = urllib.parse.quote(share_url, safe="")
+        qr_img_url = f"https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data={encoded_url}"
+
+        log_operation("chat_share", {"chat_id": chat_id}, share_url)
+        return (
+            f"🔗 **Enlace público generado:**\n"
+            f"🌐 [{share_url}]({share_url})\n\n"
+            f"⏱️ Válido por {expires_hours} horas.\n\n"
+            f"### 📱 Escanea para abrir en tu celular:\n"
+            f"![Código QR de Acceso]({qr_img_url})"
+        )
+    except Exception as e:
+        return f"Error generando enlace para el chat {chat_id}: {e}"
 
 
 def tool_chat_list_shared() -> str:
+    """Lista los chats guardados en ChatShare."""
     try:
-        if not os.path.exists(CHAT_SHARE_DIR):
-            return "No hay chats compartidos"
-
-        chats = []
-        for filename in os.listdir(CHAT_SHARE_DIR):
-            if filename.endswith(".json"):
-                filepath = os.path.join(CHAT_SHARE_DIR, filename)
-                try:
-                    with open(filepath) as f:
-                        data = json.load(f)
-                    chats.append({
-                        "id": data.get("id"),
-                        "title": data.get("title"),
-                        "created_at": data.get("created_at"),
-                        "messages_count": len(data.get("messages", []))
-                    })
-                except:
-                    pass
+        import urllib.request
+        req = urllib.request.Request(f"{CHATSHARE_API_URL}/chats?limit=20", method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            chats = json.loads(resp.read().decode("utf-8"))
 
         if not chats:
-            return "No hay chats compartidos"
+            return "No hay chats registrados en ChatShare."
 
-        chats.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-
-        lines = [f"📋 Chats compartidos ({len(chats)}):\n"]
+        lines = [f"📋 **Chats Registrados ({len(chats)}):**\n"]
         for c in chats:
-            url = f"{CHAT_SHARE_URL}/chat/{c['id']}"
-            lines.append(f"  📝 {c['title']}")
-            lines.append(f"     {c['messages_count']} mensajes | {c['created_at'][:10]}")
-            lines.append(f"     🔗 {url}")
-            lines.append("")
-
+            lines.append(f"• **{c['title']}** (v{c['version']}) — ID: `{c['id']}`")
         return "\n".join(lines)
-
     except Exception as e:
         return f"Error listando chats: {e}"
 
 
 def tool_chat_get_shared(chat_id: str) -> str:
+    """Obtiene los mensajes de un chat por su ID."""
     try:
-        filepath = os.path.join(CHAT_SHARE_DIR, f"{chat_id}.json")
-        if not os.path.exists(filepath):
-            return f"Error: Chat no encontrado: {chat_id}"
+        import urllib.request
+        req = urllib.request.Request(f"{CHATSHARE_API_URL}/chats/{chat_id}", method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
 
-        with open(filepath) as f:
-            data = json.load(f)
-
-        lines = [f"📝 {data.get('title', 'Chat')}\n"]
-        lines.append(f"📅 {data.get('created_at', 'N/A')[:19]}")
-        lines.append(f"💬 {len(data.get('messages', []))} mensajes\n")
-
+        lines = [
+            f"📝 **{data.get('title', 'Chat')}** (ID: `{data.get('id')}`)",
+            f"📅 Creado: {data.get('created_at', '')[:19]}",
+            f"💬 Mensajes: {len(data.get('messages', []))}\n"
+        ]
         for msg in data.get("messages", []):
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")[:200]
-            icon = "👤" if role == "user" else "🤖"
-            lines.append(f"{icon} {role}: {content}")
-
-        url = f"{CHAT_SHARE_URL}/chat/{chat_id}"
-        lines.append(f"\n🔗 Enlace: {url}")
+            role = "👤 Usuario" if msg.get("role") == "user" else "🤖 Asistente"
+            content = msg.get("content", "")[:250]
+            lines.append(f"**{role}:** {content}\n")
 
         return "\n".join(lines)
-
     except Exception as e:
-        return f"Error obteniendo chat: {e}"
+        return f"Error obteniendo chat {chat_id}: {e}"
+
+
+# ── Local Media Viewing Tools ─────────────────────────────
+def tool_media_view(file_path: str, caption: str = "") -> str:
+    """Genera el renderizado multimedia para visualizar archivos locales directamente en el chat web de llama (:9090)."""
+    try:
+        import mimetypes
+        import urllib.parse
+        from pathlib import Path
+
+        # Expand user path
+        if file_path.startswith("~"):
+            file_path = os.path.expanduser(file_path)
+
+        p = Path(file_path).resolve()
+        if not p.exists():
+            return f"❌ Error: El archivo no existe en la ruta: {file_path}"
+        if not p.is_file():
+            return f"❌ Error: La ruta no es un archivo: {file_path}"
+
+        mime, _ = mimetypes.guess_type(str(p))
+        mime = mime or "application/octet-stream"
+        ext = p.suffix.lower()
+        size_kb = round(p.stat().st_size / 1024, 1)
+        name = caption or p.name
+
+        local_url = f"http://localhost:9095/api/v1/media?path={urllib.parse.quote(str(p))}"
+
+        log_operation("media_view", {"path": str(p)}, f"{mime} ({size_kb} KB)")
+
+        # Formatos de imagen
+        if ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"):
+            # Generar Data URI base64 para bypass de COEP y renderizado nativo instantáneo en la UI de llama-server
+            if p.stat().st_size < 8 * 1024 * 1024:
+                import base64
+                with open(p, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("utf-8")
+                img_src = f"data:{mime};base64,{b64}"
+            else:
+                img_src = local_url
+
+            return (
+                f"🖼️ **Imagen local:** `{p.name}` ({size_kb} KB)\n\n"
+                f"![{name}]({img_src})\n\n"
+                f"*(Ruta local: `{p}`)*"
+            )
+        # Formatos de audio
+        elif ext in (".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".opus"):
+            if p.stat().st_size < 8 * 1024 * 1024:
+                import base64
+                with open(p, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("utf-8")
+                audio_src = f"data:{mime};base64,{b64}"
+            else:
+                audio_src = local_url
+
+            return (
+                f"🎙️ **Audio local:** `{p.name}` ({size_kb} KB)\n\n"
+                f'<audio controls src="{audio_src}" style="width: 100%; margin: 8px 0;"></audio>\n\n'
+                f"*(Ruta local: `{p}`)*"
+            )
+        # Formatos de video
+        elif ext in (".mp4", ".webm", ".mov", ".mkv", ".avi"):
+            return (
+                f"🎥 **Video local:** `{p.name}` ({size_kb} KB)\n\n"
+                f'<video controls playsinline src="{local_url}" style="max-width: 100%; max-height: 400px; border-radius: 8px; margin: 8px 0; background: #000;"></video>\n\n'
+                f"*(Ruta local: `{p}`)*"
+            )
+        else:
+            return (
+                f"📄 **Archivo local disponible:** [{p.name}]({local_url}) ({size_kb} KB)\n"
+                f"*(Ruta: `{p}`)*"
+            )
+    except Exception as e:
+        return f"Error preparando visualización de archivo {file_path}: {e}"
+
+
+# ── Cloudflare R2 Storage Tools ──────────────────────────────
+def tool_r2_upload(file_path: str, prefix: str = "media") -> str:
+    """Sube un archivo local a Cloudflare R2 y retorna su enlace CDN público."""
+    try:
+        from r2_storage import r2
+        if not r2.is_configured:
+            return (
+                "⚠️ Cloudflare R2 no está configurado.\n"
+                "Para activarlo, guarda tus credenciales en `~/.config/ai-lab/r2.env` o ejecuta en terminal:\n"
+                "`r2 configure --account-id ... --access-key ... --secret-key ... --bucket ...`"
+            )
+        res = r2.upload_file(file_path, prefix=prefix)
+        log_operation("r2_upload", {"file": file_path}, res["url"])
+        return (
+            f"✅ **Archivo subido con éxito a Cloudflare R2**\n\n"
+            f"🌐 **URL Pública:** {res['url']}\n"
+            f"🔑 **Key:** `{res['key']}`\n"
+            f"📦 **Tamaño:** {res['size']} bytes\n"
+            f"📄 **Tipo:** `{res['content_type']}`"
+        )
+    except Exception as e:
+        return f"Error subiendo archivo a R2: {e}"
+
+
+def tool_r2_list(prefix: str = "", limit: int = 20) -> str:
+    """Lista archivos almacenados en Cloudflare R2."""
+    try:
+        from r2_storage import r2
+        if not r2.is_configured:
+            return "⚠️ Cloudflare R2 no está configurado."
+        items = r2.list_files(prefix=prefix, max_keys=limit)
+        if not items:
+            return f"No se encontraron archivos en R2 (prefijo: '{prefix}')."
+
+        lines = [f"📂 **Archivos en Cloudflare R2 ({len(items)}):**\n"]
+        for it in items:
+            size_kb = round(it["size"] / 1024, 1)
+            lines.append(f"• **{it['key']}** ({size_kb} KB)\n  🔗 {it['url']}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error listando archivos de R2: {e}"
+
+
+def tool_r2_delete(key: str) -> str:
+    """Elimina un archivo de Cloudflare R2."""
+    try:
+        from r2_storage import r2
+        if not r2.is_configured:
+            return "⚠️ Cloudflare R2 no está configurado."
+        r2.delete_file(key)
+        log_operation("r2_delete", {"key": key}, "deleted")
+        return f"✅ Archivo `{key}` eliminado con éxito de Cloudflare R2."
+    except Exception as e:
+        return f"Error eliminando archivo de R2: {e}"
+
+
+def tool_r2_status() -> str:
+    """Comprueba el estado de Cloudflare R2."""
+    try:
+        from r2_storage import r2
+        if not r2.is_configured:
+            return (
+                "⚠️ Cloudflare R2 no está configurado.\n"
+                "Configuración requerida en `~/.config/ai-lab/r2.env`:\n"
+                "- R2_ACCOUNT_ID\n- R2_ACCESS_KEY_ID\n- R2_SECRET_ACCESS_KEY\n- R2_BUCKET_NAME\n- R2_PUBLIC_DOMAIN (opcional)"
+            )
+        items = r2.list_files(max_keys=1)
+        dom = f"\n🌐 Dominio CDN: {r2.public_domain}" if r2.public_domain else ""
+        return f"🟢 **Cloudflare R2 Conectado y Activo**\n🪣 Bucket: `{r2.bucket_name}`{dom}\n📡 Endpoint S3 Operativo"
+    except Exception as e:
+        return f"🔴 Error conectando con Cloudflare R2: {e}"
 
 
 E4B_URL = "http://localhost:9091/v1/chat/completions"
@@ -5566,13 +7818,13 @@ def tool_delegate_to_subagent(query: str) -> str:
                 result = tool_spotify_next()
             elif fn_name == "spotify_previous":
                 result = tool_spotify_previous()
-            elif fn_name == "get_plugs_status":
-                result = asyncio.run(kasa_get_plugs_status())
-            elif fn_name == "set_plug_state":
-                result = asyncio.run(kasa_set_plug_state(
+            elif fn_name == "get_plugs_status" or fn_name == "kasa_get_plugs_status":
+                result = tool_kasa_get_plugs_status()
+            elif fn_name == "set_plug_state" or fn_name == "kasa_set_plug_state":
+                result = tool_kasa_set_plug_state(
                     fn_args.get("device_name", ""),
                     fn_args.get("turn_on", False)
-                ))
+                )
             else:
                 result = f"Tool desconocido: {fn_name}"
 
@@ -5591,71 +7843,120 @@ def tool_delegate_to_subagent(query: str) -> str:
 
 
 # ── Email Implementations ──────────────────────────────────
-def tool_email_send(to: str, subject: str, body: str, cc: str = None, bcc: str = None, html: bool = False, attachments: list = None) -> str:
+def tool_email_send(to: str, subject: str, body: str, cc: str = None, bcc: str = None, html: bool = False, attachments: list = None, from_email: str = None) -> str:
     try:
-        # Build email headers
-        headers = []
-        headers.append(f"To: {to}")
+        import os
+        import subprocess
+        import mimetypes
+        import json
+        import re
+        from email.message import EmailMessage
+        from email.utils import formatdate, make_msgid
+
+        msg = EmailMessage()
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid(domain="castelancarpinteyro.com")
+        msg["Subject"] = subject
+        msg["To"] = to
+
         if cc:
-            headers.append(f"Cc: {cc}")
-        headers.append(f"Subject: {subject}")
-        headers.append("MIME-Version: 1.0")
-        
+            msg["Cc"] = cc
+        if bcc:
+            msg["Bcc"] = bcc
+
+        # If from_email is not provided, read default from ~/.msmtprc
+        if not from_email:
+            config_path = os.path.expanduser("~/.msmtprc")
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            if line.strip().startswith("from "):
+                                from_email = line.strip().split(" ", 1)[1].strip()
+                                break
+                except Exception:
+                    pass
+
+        if from_email:
+            msg["From"] = from_email
+
+        # Set content (plain text or html)
         if html:
-            headers.append("Content-Type: text/html; charset=UTF-8")
+            msg.set_content(body, subtype="html", charset="utf-8")
         else:
-            headers.append("Content-Type: text/plain; charset=UTF-8")
-        
-        if attachments:
-            boundary = f"----=_Part_{int(time.time())}"
-            headers.append(f"Multipart/mixed; boundary=\"{boundary}\"")
-        
-        email_content = "\r\n".join(headers) + "\r\n\r\n" + body
-        
-        # Add attachments
-        if attachments:
-            for filepath in attachments:
-                filepath = os.path.expanduser(filepath)
-                if os.path.exists(filepath):
-                    import base64
-                    filename = os.path.basename(filepath)
-                    with open(filepath, "rb") as f:
-                        file_data = base64.b64encode(f.read()).decode()
-                    
-                    attachment = f"\r\n--{boundary}\r\n"
-                    attachment += f"Content-Type: application/octet-stream; name=\"{filename}\"\r\n"
-                    attachment += "Content-Transfer-Encoding: base64\r\n"
-                    attachment += f"Content-Disposition: attachment; filename=\"{filename}\"\r\n\r\n"
-                    attachment += file_data
-                    email_content += attachment
-            
-            email_content += f"\r\n--{boundary}--\r\n"
-        
-        # Write to temp file
-        temp_file = f"/tmp/email_{int(time.time())}.eml"
-        with open(temp_file, "w") as f:
-            f.write(email_content)
-        
+            msg.set_content(body, charset="utf-8")
+
+        # Normalize attachments input
+        file_list = []
+        if isinstance(attachments, str):
+            try:
+                parsed = json.loads(attachments)
+                if isinstance(parsed, list):
+                    file_list = parsed
+                else:
+                    file_list = [attachments]
+            except Exception:
+                file_list = [p.strip() for p in attachments.split(",") if p.strip()]
+        elif isinstance(attachments, (list, tuple)):
+            file_list = list(attachments)
+
+        # Fallback: if no attachments explicitly passed, scan body and subject for absolute file paths that exist
+        if not file_list and body:
+            potential_paths = re.findall(r'(?:/[a-zA-Z0-9_\.\-]+)+', body)
+            for p in potential_paths:
+                if os.path.isfile(p) and not p.startswith('/dev/') and not p.startswith('/proc/'):
+                    file_list.append(p)
+
+        attached_files = []
+        missing_files = []
+
+        for filepath in file_list:
+            if not filepath or not isinstance(filepath, str):
+                continue
+            clean_path = os.path.expanduser(filepath.strip())
+            if os.path.isfile(clean_path):
+                ctype, encoding = mimetypes.guess_type(clean_path)
+                if ctype is None or encoding is not None:
+                    ctype = "application/octet-stream"
+                maintype, subtype = ctype.split("/", 1)
+
+                filename = os.path.basename(clean_path)
+                with open(clean_path, "rb") as fp:
+                    file_data = fp.read()
+                    msg.add_attachment(
+                        file_data,
+                        maintype=maintype,
+                        subtype=subtype,
+                        filename=filename
+                    )
+                attached_files.append(filename)
+            else:
+                missing_files.append(filepath)
+
+        raw_email_bytes = msg.as_bytes()
+
         # Send with msmtp
         result = subprocess.run(
             ["msmtp", "-t"],
-            input=email_content,
+            input=raw_email_bytes,
             capture_output=True,
-            text=True,
             timeout=30
         )
-        
-        # Cleanup
-        os.remove(temp_file)
-        
+
         if result.returncode == 0:
-            log_operation("email_send", {"to": to, "subject": subject}, "OK")
-            return f"Correo enviado a {to}"
+            log_operation("email_send", {"to": to, "subject": subject, "attachments": attached_files}, "OK")
+            res = f"Correo enviado exitosamente a {to}"
+            if attached_files:
+                res += f" con {len(attached_files)} archivo(s) adjunto(s): {', '.join(attached_files)}"
+            if missing_files:
+                res += f" (Advertencia: no se encontraron los archivos: {', '.join(missing_files)})"
+            return res
         else:
-            return f"Error enviando correo: {result.stderr}"
-    
+            stderr_msg = result.stderr.decode("utf-8", errors="ignore") if isinstance(result.stderr, bytes) else str(result.stderr)
+            return f"Error enviando correo con msmtp: {stderr_msg}"
+
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error en tool_email_send: {e}"
 
 
 def tool_email_configure(smtp_host: str, username: str, password: str, from_email: str, smtp_port: int = 587, from_name: str = None, tls: bool = True) -> str:
@@ -7634,7 +9935,8 @@ def tool_osint_username(username: str, sites: str = None, max_results: int = 50)
         import os
 
         # Use maigret as primary (3302 sites)
-        venv_python = "/tmp/search-env/bin/python"
+        skills_bin = os.path.expanduser("~/scripting/gpu-tools/skills/.venv/bin")
+        venv_python = os.path.join(skills_bin, "python") if os.path.exists(os.path.join(skills_bin, "python")) else sys.executable
 
         # Build maigret command
         cmd = [
@@ -7655,7 +9957,7 @@ def tool_osint_username(username: str, sites: str = None, max_results: int = 50)
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=120,
-                env={**os.environ, "PATH": f"/tmp/search-env/bin:{os.environ.get('PATH', '')}"}
+                env={**os.environ, "PATH": f"{skills_bin}:{os.environ.get('PATH', '')}"}
             )
 
             # Parse JSON output
@@ -7716,7 +10018,7 @@ def tool_osint_username(username: str, sites: str = None, max_results: int = 50)
 
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=120,
-                env={**os.environ, "PATH": f"/tmp/search-env/bin:{os.environ.get('PATH', '')}"}
+                env={**os.environ, "PATH": f"{skills_bin}:{os.environ.get('PATH', '')}"}
             )
 
             if result.stdout:
@@ -7749,7 +10051,8 @@ def tool_osint_email(email: str, max_results: int = 30) -> str:
         import json
         import os
 
-        venv_python = "/tmp/search-env/bin/python"
+        skills_bin = os.path.expanduser("~/scripting/gpu-tools/skills/.venv/bin")
+        venv_python = os.path.join(skills_bin, "python") if os.path.exists(os.path.join(skills_bin, "python")) else sys.executable
 
         # Use holehe for email investigation
         cmd = [
@@ -7761,7 +10064,7 @@ def tool_osint_email(email: str, max_results: int = 30) -> str:
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=120,
-                env={**os.environ, "PATH": f"/tmp/search-env/bin:{os.environ.get('PATH', '')}"}
+                env={**os.environ, "PATH": f"{skills_bin}:{os.environ.get('PATH', '')}"}
             )
 
             # Parse output
@@ -8102,6 +10405,632 @@ def tool_osint_person(name: str, email: str = None, location: str = None) -> str
         return f"Error en OSINT persona: {e}"
 
 
+# ── Audit & Observability Tools ─────────────────────────────
+def tool_audit_get_metrics(hours: int = 24) -> str:
+    """Consulta métricas agregadas de rendimiento de herramientas, tasa de éxito y uso de GPU/VRAM."""
+    try:
+        from scripts.tools.audit_logger import AuditLogger
+        logger = AuditLogger()
+        metrics = logger.get_metrics(hours)
+
+        output = f"📊 **Métricas de Ejecución AI Lab (Últimas {hours} horas)**\n\n"
+        output += f"• **Total de Invocaciones**: {metrics['total_calls']}\n"
+        output += f"• **Tasa de Éxito**: {metrics['success_rate_pct']}%\n"
+        output += f"• **Latencia Promedio**: {metrics['avg_duration_ms']} ms (Máx: {metrics['max_duration_ms']} ms)\n"
+        output += f"• **Tokens Estimados Procesados**: {metrics['total_tokens_estimate']}\n"
+        output += f"• **Uso Promedio VRAM GPU**: {metrics['avg_gpu_vram_mb']} MB (Temp Máx: {metrics['max_gpu_temp_c']} °C)\n\n"
+
+        if metrics.get("top_tools"):
+            output += "🏆 **Herramientas más utilizadas:**\n"
+            for t in metrics["top_tools"]:
+                err_str = f" ({t['errors']} fallos)" if t["errors"] > 0 else ""
+                output += f"  - `{t['tool']}`: {t['calls']} llamadas ({t['avg_duration_ms']} ms prom){err_str}\n"
+
+        if metrics.get("recent_errors"):
+            output += "\n⚠️ **Errores Recientes:**\n"
+            for err in metrics["recent_errors"]:
+                output += f"  - [{err['timestamp']}] `{err['tool']}`: {err['error']}\n"
+
+        return output
+    except Exception as e:
+        return f"Error al recuperar métricas de auditoría: {e}"
+
+
+def tool_audit_list_traces(limit: int = 10, errors_only: bool = False) -> str:
+    """Lista las últimas trazas de auditoría de ejecución de herramientas."""
+    try:
+        from scripts.tools.audit_logger import AuditLogger
+        logger = AuditLogger()
+        traces = logger.list_recent_traces(limit=limit, errors_only=errors_only)
+
+        if not traces:
+            return "ℹ️ No se encontraron trazas registradas en la base de datos de auditoría."
+
+        output = f"📜 **Últimas {len(traces)} Trazas de Auditoría** (Filtro solo errores: {errors_only}):\n\n"
+        for t in traces:
+            icon = "✅" if t["success"] else "❌"
+            output += f"{icon} **[#{t['id']} | {t['timestamp']}]** `{t['tool']}` — {t['duration_ms']} ms | VRAM: {t['vram_mb']} MB\n"
+            if not t["success"] and t["error"]:
+                output += f"   └── *Error:* {t['error']}\n"
+        return output
+    except Exception as e:
+        return f"Error al listar trazas de auditoría: {e}"
+
+
+# ── Declarative Workflow (DAG) Tools ────────────────────────
+def tool_workflow_list() -> str:
+    """Lista los flujos de trabajo declarativos disponibles."""
+    try:
+        from scripts.automation.dag_runner import DAGRunner
+        runner = DAGRunner()
+        wfs = runner.list_workflows()
+        if not wfs:
+            return "ℹ️ No se encontraron flujos de trabajo registrados en `configs/workflows/`."
+
+        output = f"📋 **Flujos de Trabajo Declarativos ({len(wfs)} disponibles):**\n\n"
+        for wf in wfs:
+            output += f"• **`{wf['name']}`**: {wf['description']} ({wf['steps_count']} pasos)\n"
+            output += f"  └── Archivo: `{wf['file']}`\n"
+        return output
+    except Exception as e:
+        return f"Error al listar workflows: {e}"
+
+
+def tool_workflow_run(name: str, params: dict = None) -> str:
+    """Ejecuta un flujo de trabajo declarativo por nombre."""
+    try:
+        from scripts.automation.dag_runner import DAGRunner
+        runner = DAGRunner()
+        res = runner.run_workflow(name, custom_params=params)
+
+        icon = "✅" if res["status"] == "success" else "❌"
+        output = f"{icon} **Ejecución de Workflow: `{name}` (Run #{res['run_id']})**\n\n"
+        output += f"• **Estado**: {res['status'].upper()}\n"
+        output += f"• **Pasos**: {res['completed_steps']}/{res['total_steps']}\n\n"
+
+        if res.get("error"):
+            output += f"⚠️ **Error en ejecución:** {res['error']}\n\n"
+
+        results = res.get("results") or res.get("partial_results") or {}
+        output += "📊 **Resultados por Paso:**\n"
+        for step_id, step_info in results.items():
+            st_icon = "✓" if step_info.get("status") == "success" else "✗"
+            dur = step_info.get("duration_ms", 0)
+            res_preview = str(step_info.get("result", ""))[:120].replace("\n", " ")
+            output += f"  - [{st_icon}] `{step_id}` ({step_info.get('tool')}, {dur}ms): {res_preview}...\n"
+
+        return output
+    except Exception as e:
+        return f"Error al ejecutar workflow '{name}': {e}"
+
+
+def tool_workflow_status(run_id: int) -> str:
+    """Consulta el estado de una ejecución de workflow."""
+    try:
+        from scripts.automation.dag_runner import DAGRunner
+        runner = DAGRunner()
+        with runner._get_connection() as conn:
+            row = conn.execute("SELECT * FROM workflow_runs WHERE id = ?", (run_id,)).fetchone()
+            if not row:
+                return f"Error: No se encontró la ejecución con ID {run_id}."
+
+            icon = "✅" if row["status"] == "success" else ("⏳" if row["status"] == "running" else "❌")
+            output = f"{icon} **Workflow Run #{row['id']}: `{row['workflow_name']}`**\n\n"
+            output += f"• **Estado**: {row['status']}\n"
+            output += f"• **Inicio**: {row['started_at']} | **Fin**: {row['finished_at'] or 'En progreso'}\n"
+            output += f"• **Pasos**: {row['completed_steps']}/{row['total_steps']}\n"
+            if row["error_message"]:
+                output += f"• **Error**: {row['error_message']}\n"
+            return output
+    except Exception as e:
+        return f"Error al consultar estado del workflow: {e}"
+
+
+# ── Vector Memory & Local RAG Tools ─────────────────────────
+def tool_vector_search(query: str, collection: str = "all", limit: int = 5) -> str:
+    """Búsqueda semántica en base vectorial local."""
+    try:
+        from scripts.tools.vector_engine import VectorEngine
+        engine = VectorEngine()
+        results = engine.search_documents(query, collection=collection, limit=limit)
+        if not results:
+            return f"ℹ️ No se encontraron fragmentos semánticamente relevantes para '{query}' en la colección '{collection}'."
+
+        output = f"🔍 **Resultados de Búsqueda Semántica ({len(results)} fragmentos):**\n\n"
+        for idx, r in enumerate(results, 1):
+            score_pct = round(r["score"] * 100, 1)
+            filename = Path(r["doc_path"]).name
+            header = r.get("metadata", {}).get("header", "")
+            hdr_str = f" > {header}" if header else ""
+            output += f"**{idx}. [{score_pct}% Similitud] `{filename}`{hdr_str}** (Colección: `{r['collection']}`)\n"
+            output += f"```markdown\n{r['content'][:350]}...\n```\n\n"
+        return output.strip()
+    except Exception as e:
+        return f"Error en búsqueda semántica vectorial: {e}"
+
+
+def tool_vector_index_path(path: str, collection: str = "docs") -> str:
+    """Indexa un archivo o carpeta en la base vectorial."""
+    try:
+        from scripts.tools.vector_engine import VectorEngine
+        engine = VectorEngine()
+        p = Path(path).expanduser().resolve()
+        if not p.exists():
+            return f"Error: La ruta '{path}' no existe."
+
+        if p.is_file():
+            chunks = engine.index_file(p, collection=collection)
+            return f"✅ Archivo `{p.name}` indexado exitosamente en colección `{collection}` ({chunks} fragmentos semánticos)."
+        else:
+            res = engine.index_directory(p, collection=collection)
+            return f"✅ Directorio `{p.name}` indexado en `{collection}`: {res['indexed_files']} archivos, {res['total_chunks']} fragmentos totales."
+    except Exception as e:
+        return f"Error al indexar ruta '{path}': {e}"
+
+
+def tool_vector_remember(text: str, category: str = "preference") -> str:
+    """Guarda un recuerdo en la memoria episódica vectorial."""
+    try:
+        from scripts.tools.vector_engine import VectorEngine
+        engine = VectorEngine()
+        mem_id = engine.save_memory(text, category=category)
+        return f"🧠 Recuerdo #{mem_id} guardado exitosamente en la memoria vectorial (Categoría: `{category}`)."
+    except Exception as e:
+        return f"Error al guardar memoria semántica: {e}"
+
+
+def tool_vector_stats() -> str:
+    """Devuelve estadísticas de la base vectorial."""
+    try:
+        from scripts.tools.vector_engine import VectorEngine
+        engine = VectorEngine()
+        stats = engine.get_stats()
+        output = "📊 **Estadísticas de la Base Vectorial Local (RAG):**\n\n"
+        output += f"• **Ubicación**: `{stats['db_path']}`\n"
+        output += f"• **Tamaño en disco**: {stats['size_kb']} KB\n"
+        output += f"• **Total fragmentos de documentos**: {stats['total_chunks']}\n"
+        output += f"• **Total recuerdos episódicos**: {stats['total_memories']}\n\n"
+        output += "📁 **Colecciones:**\n"
+        for c in stats["collections"]:
+            output += f"  - `{c['name']}`: {c['chunks']} chunks\n"
+        return output
+    except Exception as e:
+        return f"Error al consultar estadísticas vectoriales: {e}"
+
+
+# ── Headless Browser & Identity Sync Tools (Brave CDP) ──────
+def tool_browser_navigate(url: str, wait_seconds: float = 3.0) -> str:
+    """Navega a una URL con el navegador headless Brave."""
+    try:
+        from scripts.tools.browser_engine import BrowserEngine
+        engine = BrowserEngine()
+        res = engine.navigate(url, wait_seconds=wait_seconds)
+        return f"🌐 **Navegación Completada:**\n• **Título**: {res['title']}\n• **URL Final**: {res['url']}"
+    except Exception as e:
+        return f"Error en navegación web: {e}"
+
+
+def tool_browser_extract_text(selector: str = "body") -> str:
+    """Extrae el contenido de texto legible de la página web activa."""
+    try:
+        from scripts.tools.browser_engine import BrowserEngine
+        engine = BrowserEngine()
+        text = engine.extract_text(selector=selector)
+        if not text:
+            return f"ℹ️ No se encontró contenido textual en el selector '{selector}'."
+        preview = text[:3000]
+        suffix = f"\n\n... *(truncado, {len(text)} caracteres totales)*" if len(text) > 3000 else ""
+        return f"📄 **Contenido Extraído (`{selector}`):**\n\n{preview}{suffix}"
+    except Exception as e:
+        return f"Error al extraer texto web: {e}"
+
+
+def tool_browser_click(selector: str) -> str:
+    """Hace clic en un elemento web interactivo."""
+    try:
+        from scripts.tools.browser_engine import BrowserEngine
+        engine = BrowserEngine()
+        res = engine.click(selector=selector)
+        if res.get("success"):
+            return f"✅ Clic ejecutado en elemento `<{res.get('tag', 'element')}>` (`{selector}`): {res.get('text', '')}"
+        else:
+            return f"❌ Error al hacer clic: {res.get('error', 'Elemento no interactuable')}"
+    except Exception as e:
+        return f"Error al hacer clic en elemento: {e}"
+
+
+def tool_browser_type(selector: str, text: str, submit: bool = False) -> str:
+    """Escribe texto en un campo de entrada web."""
+    try:
+        from scripts.tools.browser_engine import BrowserEngine
+        engine = BrowserEngine()
+        res = engine.type_text(selector=selector, text=text, submit=submit)
+        if res.get("success"):
+            sub_str = " y enviado formulario" if submit else ""
+            return f"✅ Texto ({res['length']} caracteres) ingresado en `{selector}`{sub_str}."
+        else:
+            return f"❌ Error al escribir en selector `{selector}`: {res.get('error')}"
+    except Exception as e:
+        return f"Error al ingresar texto web: {e}"
+
+
+def tool_browser_screenshot(name: str = None, full_page: bool = False) -> str:
+    """Captura de pantalla de la página web activa."""
+    try:
+        from scripts.tools.browser_engine import BrowserEngine
+        engine = BrowserEngine()
+        res = engine.screenshot(name=name, full_page=full_page)
+        return f"📸 **Captura de Pantalla Guardada:**\n• **Archivo**: `{res['filename']}` ({res['size_bytes']} bytes)\n• **Ruta local**: `{res['file_path']}`\n\n💡 *Tip: Usa `media_view(file_path='{res['file_path']}')` para visualizar la imagen directamente en el chat.*"
+    except Exception as e:
+        return f"Error al capturar screenshot: {e}"
+
+
+def tool_browser_sync_brave_profile(profile_name: str = "Default") -> str:
+    """Sincroniza el perfil, cookies e identidades desde Brave personal."""
+    try:
+        from scripts.tools.browser_engine import BraveIdentitySync
+        res = BraveIdentitySync.sync_profile(profile_name=profile_name)
+        if res["success"]:
+            items_str = ", ".join(res["synced_items"])
+            return f"🔐 **Perfil de Brave Sincronizado Exitosamente:**\n• **Perfil**: `{profile_name}`\n• **Elementos**: {items_str}\n• **Destino**: `{res['target']}`\n\nLas sesiones autenticadas (cookies y local storage) ahora están activas para la navegación de la IA."
+        else:
+            return f"❌ Error al sincronizar perfil de Brave: {res.get('error')}"
+    except Exception as e:
+        return f"Error al sincronizar identidades de Brave: {e}"
+
+
+def tool_browser_status() -> str:
+    """Consulta el estado del navegador headless."""
+    try:
+        from scripts.tools.browser_engine import BrowserEngine
+        engine = BrowserEngine()
+        st = engine.get_status()
+        icon = "🟢" if st["browser_active"] else "⚪"
+        output = f"{icon} **Estado de Brave Headless:**\n\n"
+        output += f"• **Activo**: {'Sí' if st['browser_active'] else 'No (inicia bajo demanda)'}\n"
+        output += f"• **Puerto CDP**: `{st['cdp_port']}`\n"
+        output += f"• **URL Actual**: {st['current_url']}\n"
+        output += f"• **Título**: {st['page_title'] or '(sin título)'}\n"
+        return output
+    except Exception as e:
+        return f"Error al consultar estado del navegador: {e}"
+
+
+def tool_browser_extract_markdown() -> str:
+    """Extrae el contenido de la página web convertido a Markdown limpio."""
+    try:
+        from scripts.tools.browser_engine import BrowserEngine
+        engine = BrowserEngine()
+        md = engine.extract_markdown()
+        if not md:
+            return "ℹ️ No se pudo extraer contenido Markdown de la página activa."
+        preview = md[:4000]
+        suffix = f"\n\n... *(documento truncado, {len(md)} caracteres totales)*" if len(md) > 4000 else ""
+        return f"📖 **Lectura Markdown de Página Web:**\n\n{preview}{suffix}"
+    except Exception as e:
+        return f"Error al extraer Markdown de la página: {e}"
+
+
+def tool_browser_print_pdf(filename: str = None) -> str:
+    """Imprime la página web activa a un archivo PDF."""
+    try:
+        from scripts.tools.browser_engine import BrowserEngine
+        engine = BrowserEngine()
+        res = engine.print_to_pdf(filename=filename)
+        return f"📄 **Documento PDF Generado:**\n• **Archivo**: `{res['filename']}` ({res['size_bytes']} bytes)\n• **Ruta local**: `{res['file_path']}`"
+    except Exception as e:
+        return f"Error al generar PDF de la página: {e}"
+
+
+def tool_browser_get_links() -> str:
+    """Extrae todos los enlaces presentes en la página web."""
+    try:
+        from scripts.tools.browser_engine import BrowserEngine
+        engine = BrowserEngine()
+        links = engine.get_links()
+        if not links:
+            return "ℹ️ No se encontraron enlaces en la página web activa."
+        output = f"🔗 **Enlaces Encontrados ({len(links)} totales):**\n\n"
+        for idx, l in enumerate(links[:30], 1):
+            output += f"{idx}. [{l['text']}]({l['href']})\n"
+        if len(links) > 30:
+            output += f"\n... *(y {len(links) - 30} enlaces más)*"
+        return output.strip()
+    except Exception as e:
+        return f"Error al extraer enlaces: {e}"
+
+
+def tool_browser_list_tabs() -> str:
+    """Lista las pestañas abiertas en el navegador."""
+    try:
+        from scripts.tools.browser_engine import BrowserEngine
+        engine = BrowserEngine()
+        tabs = engine.list_tabs()
+        if not tabs:
+            return "ℹ️ No hay pestañas abiertas en el navegador."
+        output = f"📑 **Pestañas Abiertas ({len(tabs)}):**\n\n"
+        for idx, t in enumerate(tabs, 1):
+            output += f"{idx}. **`{t['title'] or '(sin título)'}`**\n   └── URL: {t['url']} (ID: `{t['id']}`)\n"
+        return output.strip()
+    except Exception as e:
+        return f"Error al listar pestañas: {e}"
+
+
+def tool_browser_clear_session() -> str:
+    """Limpia cookies y caché del navegador para navegación anónima."""
+    try:
+        from scripts.tools.browser_engine import BrowserEngine
+        engine = BrowserEngine()
+        res = engine.clear_session()
+        return f"🧹 {res['message']}"
+    except Exception as e:
+        return f"Error al limpiar sesión del navegador: {e}"
+
+
+# ── Full-Duplex Voice & Multimodal Vision Tools ─────────────
+def tool_voice_speak(text: str, interruptible: bool = True, notify: bool = True) -> str:
+    """Sintetiza y reproduce voz con soporte de interrupción (Barge-In)."""
+    try:
+        from scripts.voice.full_duplex_engine import FullDuplexVoiceEngine
+        engine = FullDuplexVoiceEngine()
+        res = engine.speak(text=text, interruptible=interruptible, notify=notify)
+        if res.get("success"):
+            engine_name = res.get("engine", "TTS")
+            inter_str = " (interrumpible si hablas)" if interruptible else ""
+            return f"🗣️ **Voz sintetizada y reproduciendo ({engine_name}):**\n\"{text}\"{inter_str}"
+        else:
+            return f"❌ Error al sintetizar voz: {res.get('error')}"
+    except Exception as e:
+        return f"Error en síntesis de voz: {e}"
+
+
+def tool_voice_listen(timeout_seconds: float = 8.0, silence_ms: int = 800) -> str:
+    """Escucha el micrófono con VAD inteligente y transcribe."""
+    try:
+        from scripts.voice.full_duplex_engine import FullDuplexVoiceEngine
+        engine = FullDuplexVoiceEngine()
+        res = engine.listen(timeout_seconds=timeout_seconds, silence_ms=silence_ms)
+        if res.get("success"):
+            return f"🎙️ **Audio Capturado y Transcrito:**\n\"{res.get('transcription', '')}\""
+        else:
+            return f"❌ Error al escuchar micrófono: {res.get('error')}"
+    except Exception as e:
+        return f"Error en escucha por voz: {e}"
+
+
+def tool_voice_status() -> str:
+    """Consulta el estado del subsistema de voz."""
+    try:
+        from scripts.voice.full_duplex_engine import FullDuplexVoiceEngine
+        engine = FullDuplexVoiceEngine()
+        st = engine.get_status()
+        output = "🎙️ **Estado del Subsistema de Voz (Full-Duplex & Barge-In):**\n\n"
+        output += f"• **Barge-In (Interrupción activa)**: {'Activado' if st['barge_in_active'] else 'Desactivado'}\n"
+        output += f"• **Motor TTS**: {st.get('tts_engine', 'none')} ({'Listo' if st['tts_ready'] else 'No disponible'})\n"
+        output += f"• **Whisper STT**: {'Activo (:9093)' if st['stt_whisper_ready'] else 'Inactivo'}\n"
+        output += f"• **Micrófono**: {'Disponible' if st['microphone_ready'] else 'No detectado'}\n"
+        output += f"• **Reproductor**: {'Listo (PipeWire)' if st['playback_ready'] else 'No detectado'}\n"
+        return output
+    except Exception as e:
+        return f"Error al consultar estado de voz: {e}"
+
+
+def tool_vision_analyze_image(image_path: str, prompt: str = "Describe esta imagen en detalle y extrae los datos clave.") -> str:
+    """Ejecuta inferencia visual multimodal u OCR sobre una imagen."""
+    try:
+        from scripts.vision.multimodal_vision import MultimodalVisionEngine
+        engine = MultimodalVisionEngine()
+        return engine.analyze_image(image_path=image_path, prompt=prompt)
+    except Exception as e:
+        return f"Error en análisis visual: {e}"
+
+
+def tool_vision_inspect_screen(prompt: str = "Analiza la actividad y elementos presentes en la pantalla.") -> str:
+    """Captura el escritorio y analiza visualmente el contenido."""
+    try:
+        from scripts.vision.multimodal_vision import MultimodalVisionEngine
+        engine = MultimodalVisionEngine()
+        res = engine.inspect_screen(prompt=prompt)
+        output = f"🖥️ **Captura de Pantalla Realizada:** `{res['filename']}`\n\n"
+        output += res["analysis"]
+        return output
+    except Exception as e:
+        return f"Error al inspeccionar pantalla: {e}"
+
+
+def tool_vision_ocr(image_path: str) -> str:
+    """Extrae texto de una imagen mediante Tesseract OCR local."""
+    try:
+        from scripts.vision.multimodal_vision import MultimodalVisionEngine
+        engine = MultimodalVisionEngine()
+        ocr_text = engine.run_ocr(image_path=image_path)
+        if not ocr_text:
+            return "ℹ️ No se detectó texto legible en la imagen."
+        return f"📝 **Texto Extraído (OCR):**\n```\n{ocr_text}\n```"
+    except Exception as e:
+        return f"Error al ejecutar OCR: {e}"
+
+
+# ── Desktop Multi-Monitor Context, Audio & Voice Profiles ──
+def tool_desktop_context_explain(target: str = "active_window", user_intent: str = "¿Qué estoy haciendo y qué opciones tengo?", include_rag: bool = True) -> str:
+    """Inspección contextual omnipotente: qué está haciendo el usuario y qué opciones/botones tiene."""
+    try:
+        from scripts.vision.desktop_context_engine import DesktopContextEngine
+        engine = DesktopContextEngine()
+        res = engine.explain_context(target=target, user_intent=user_intent, include_rag=include_rag)
+        return res["report"]
+    except Exception as e:
+        return f"Error en inspección contextual de escritorio: {e}"
+
+
+def tool_desktop_list_monitors() -> str:
+    """Lista todos los monitores y pantallas físicas conectadas."""
+    try:
+        from scripts.vision.desktop_context_engine import DesktopContextEngine
+        engine = DesktopContextEngine()
+        monitors = engine.list_monitors()
+        if not monitors:
+            return "ℹ️ No se detectaron salidas de monitor activas (xrandr)."
+        output = f"📺 **Monitores Detectados ({len(monitors)}):**\n\n"
+        for idx, m in enumerate(monitors, 1):
+            prim = " ⭐ *(Principal)*" if m.get("is_primary") else ""
+            output += f"{idx}. **`{m['name']}`** — {m['width']}x{m['height']} (Offset: +{m['x']}+{m['y']}){prim}\n"
+        return output.strip()
+    except Exception as e:
+        return f"Error al listar monitores: {e}"
+
+
+def tool_desktop_list_windows() -> str:
+    """Lista las ventanas abiertas en el escritorio y su estado de foco."""
+    try:
+        from scripts.vision.desktop_context_engine import DesktopContextEngine
+        engine = DesktopContextEngine()
+        windows = engine.list_windows()
+        if not windows:
+            return "ℹ️ No se encontraron ventanas abiertas en el entorno gráfico."
+        output = f"🪟 **Ventanas Abiertas ({len(windows)}):**\n\n"
+        for idx, w in enumerate(windows, 1):
+            foc = " 🎯 *(En foco / activa)*" if w.get("is_focused") else ""
+            output += f"{idx}. `[{w.get('app_class', 'App')}]` **{w.get('title', '(sin título)')}**{foc}\n   └── ID: `{w['window_id']}` | PID: {w.get('pid', 'N/A')}\n"
+        return output.strip()
+    except Exception as e:
+        return f"Error al listar ventanas: {e}"
+
+
+def tool_desktop_capture_region(target: str = "active_window", monitor_name: str = None, window_id: str = None, bbox: dict = None) -> str:
+    """Captura una ventana, monitor o región y la guarda en la carpeta multimedia."""
+    try:
+        from scripts.vision.desktop_context_engine import DesktopContextEngine
+        engine = DesktopContextEngine()
+        shot_path = engine.capture_target(target=target, monitor_name=monitor_name, window_id=window_id, bbox=bbox)
+        return f"📸 **Captura de Región Exitosa:**\n• **Objetivo**: `{target}`\n• **Archivo**: `{shot_path.name}`\n• **Ruta local**: `{shot_path}`\n\n💡 *Tip: Usa `media_view(file_path='{shot_path}')` para visualizar la imagen directamente en el chat.*"
+    except Exception as e:
+        return f"Error al capturar región de escritorio: {e}"
+
+
+def tool_audio_check_volume(min_volume: int = 15, notify_if_inaudible: bool = True) -> str:
+    """Diagnostica el volumen del sistema y avisa si está muteado."""
+    try:
+        from scripts.voice.audio_diagnostics import AudioDiagnostics
+        info = AudioDiagnostics.get_output_volume()
+        audible, reason = AudioDiagnostics.check_audibility(min_volume=min_volume, notify_if_inaudible=notify_if_inaudible)
+        mute_str = "🔇 Sí (Muteado)" if info["is_muted"] else "🔊 No"
+        icon = "🟢" if audible else "⚠️"
+        return f"{icon} **Diagnóstico de Volumen del Sistema:**\n• **Volumen**: {info['volume_percent']}%\n• **Silenciado (Mute)**: {mute_str}\n• **Backend**: `{info['backend']}`\n• **Estado**: {reason}"
+    except Exception as e:
+        return f"Error al diagnosticar audio: {e}"
+
+
+def tool_audio_set_volume(percent: int, unmute: bool = True) -> str:
+    """Ajusta el volumen del sistema y desactiva el mute."""
+    try:
+        from scripts.voice.audio_diagnostics import AudioDiagnostics
+        res = AudioDiagnostics.set_volume(percent=percent, unmute=unmute)
+        if res.get("success"):
+            return f"🔊 **Volumen Ajustado al {res['volume_percent']}%** (Mute desactivado: {res['unmuted']})."
+        else:
+            return f"❌ Error al ajustar volumen: {res.get('error')}"
+    except Exception as e:
+        return f"Error al ajustar volumen: {e}"
+
+
+def tool_voice_set_profile(profile_id: str, language: str = None, speed: float = None, pitch: float = None, volume: int = None) -> str:
+    """Personaliza el perfil de voz, acento, idioma, velocidad y tono."""
+    try:
+        from scripts.voice.voice_profiles import VoiceProfileManager
+        mgr = VoiceProfileManager()
+        prof = mgr.set_profile(profile_id=profile_id, language=language, speed=speed, pitch=pitch, volume=volume)
+        return f"🎙️ **Perfil de Voz Actualizado Exitosamente:**\n• **Perfil**: `{prof['name']}` (`{prof['profile_id']}`)\n• **Idioma / Acento**: `{prof['language']}`\n• **Velocidad**: {prof['speed']}x\n• **Tono (Pitch)**: {prof['pitch']}x\n• **Volumen**: {prof['volume']}%\n• **Motor**: `{prof['engine']}`"
+    except Exception as e:
+        return f"Error al configurar perfil de voz: {e}"
+
+
+def tool_voice_list_profiles() -> str:
+    """Lista todos los perfiles de voz y acentos disponibles."""
+    try:
+        from scripts.voice.voice_profiles import VoiceProfileManager
+        mgr = VoiceProfileManager()
+        profiles = mgr.list_available_profiles()
+        output = "🗣️ **Perfiles de Voz y Acentos Disponibles:**\n\n"
+        for p in profiles:
+            act = " ⭐ *(Activo)*" if p.get("is_active") else ""
+            output += f"• **`{p['id']}`**: {p['name']} ({p['language']}){act}\n  └── Motor: `{p['engine']}` | Velocidad: {p['speed']}x | Tono: {p['pitch']}x\n"
+        return output.strip()
+    except Exception as e:
+        return f"Error al listar perfiles de voz: {e}"
+
+
+def tool_voice_conversational_turn(prompt: str = None) -> str:
+    """Ejecuta un ciclo conversacional completo por voz."""
+    try:
+        from scripts.voice.conversational_loop import ConversationalVoiceLoop
+        loop = ConversationalVoiceLoop(single_shot=True)
+        if prompt:
+            loop.query_llm(prompt)
+        res = loop.run_turn()
+        return "🎙️ **Turno Conversacional Completado.** (Voz reproducida con Barge-In activo)."
+    except Exception as e:
+        return f"Error en turno conversacional: {e}"
+
+
+def tool_handy_status() -> str:
+    """Obtiene el estado de la aplicación Handy y Parakeet V3."""
+    try:
+        from scripts.voice.handy_bridge import HandyBridge
+        status = HandyBridge().get_status()
+        daemon_str = "🟢 En ejecución" if status.get("daemon_running") else "⚪ Detenido"
+        parakeet_str = "🟢 Listo / Instalado" if status.get("parakeet_v3_ready") else "🔴 No encontrado"
+        latest = status.get("latest_transcript") or "*(Ninguna en esta sesión)*"
+        rec = status.get("latest_recording") or "*(Ninguna)*"
+        return (
+            f"🎙️ **Estado de Integración Handy (cjpais/Handy):**\n"
+            f"• **Demonio / App Handy**: {daemon_str}\n"
+            f"• **Modelo Parakeet V3**: {parakeet_str}\n"
+            f"• **Última Transcripción**: \"{latest}\"\n"
+            f"• **Última Grabación**: `{rec}`"
+        )
+    except Exception as e:
+        return f"Error al consultar estado de Handy: {e}"
+
+
+def tool_handy_toggle_transcription() -> str:
+    """Inicia o detiene la captura de audio en Handy."""
+    try:
+        from scripts.voice.handy_bridge import HandyBridge
+        res = HandyBridge().toggle_transcription()
+        if res.get("success"):
+            return "🎙️ **Señal enviada a Handy:** Grabación / transcripción conmutada con éxito."
+        else:
+            return f"❌ No se pudo conmutar Handy: {res.get('error')}"
+    except Exception as e:
+        return f"Error al conmutar Handy: {e}"
+
+
+def tool_voice_transcribe_audio(file_path: str, engine: str = "auto") -> str:
+    """Transcribe un archivo de audio WAV usando Parakeet V3 o Whisper."""
+    try:
+        from pathlib import Path
+        p = Path(file_path).expanduser().resolve()
+        if not p.exists():
+            return f"❌ Archivo no encontrado: `{file_path}`"
+
+        if engine.lower() == "parakeet":
+            from scripts.voice.parakeet_engine import ParakeetEngine
+            parakeet = ParakeetEngine()
+            res = parakeet.transcribe(p)
+            if res.get("success"):
+                return f"🎙️ **Transcripción (Parakeet V3 - {res.get('latency_ms')}ms):**\n\n\"{res.get('text')}\""
+            else:
+                return f"❌ Error en Parakeet: {res.get('error')}"
+
+        from scripts.voice.full_duplex_engine import FullDuplexVoiceEngine
+        engine_inst = FullDuplexVoiceEngine()
+        text = engine_inst.transcribe_file(p)
+        return f"🎙️ **Transcripción (Motor ASR Híbrido):**\n\n\"{text}\""
+    except Exception as e:
+        return f"Error al transcribir audio: {e}"
+
+
 def handle_request(request: dict) -> dict:
     method = request.get("method")
     req_id = request.get("id")
@@ -8131,6 +11060,7 @@ def handle_request(request: dict) -> dict:
     elif method == "tools/call":
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
+        _flash_keyboard_status(tool_name)
 
         try:
             handlers = {
@@ -8145,12 +11075,26 @@ def handle_request(request: dict) -> dict:
                 ),
                 "read_file": lambda: tool_read_file(
                     arguments["path"],
+                    arguments.get("start_line", 1),
+                    arguments.get("end_line"),
                     arguments.get("max_lines", 200)
                 ),
                 "write_file": lambda: tool_write_file(
                     arguments["path"],
                     arguments["content"],
                     arguments.get("append", False)
+                ),
+                "append_to_file": lambda: tool_append_to_file(
+                    arguments["path"],
+                    arguments["content"]
+                ),
+                "replace_file_content": lambda: tool_replace_file_content(
+                    arguments["path"],
+                    arguments["target_content"],
+                    arguments["replacement_content"]
+                ),
+                "compact_context": lambda: tool_compact_context(
+                    arguments["content"]
                 ),
                 "run_command": lambda: tool_run_command(
                     arguments["command"],
@@ -8228,12 +11172,13 @@ def handle_request(request: dict) -> dict:
                     arguments.get("category"),
                     arguments.get("limit", 10)
                 ),
+                "memory_get": lambda: tool_memory_get(arguments["id"]),
                 "memory_context": lambda: tool_memory_context(
                     arguments.get("category"),
                     arguments.get("limit", 5)
                 ),
                 "memory_list": lambda: tool_memory_list(
-                    arguments.get("limit", 20)
+                    arguments.get("limit", 30)
                 ),
                 "memory_delete": lambda: tool_memory_delete(arguments["id"]),
                 "system_shutdown": lambda: tool_system_shutdown(
@@ -8262,6 +11207,19 @@ def handle_request(request: dict) -> dict:
                 ),
                 "network_speed": lambda: tool_network_speed(),
                 "network_info": lambda: tool_network_info(),
+                "network_arp_table": lambda: tool_network_arp_table(),
+                "network_scan_subnet": lambda: tool_network_scan_subnet(
+                    arguments.get("subnet_base", "172.31.0"),
+                    arguments.get("start_ip", 1),
+                    arguments.get("end_ip", 50),
+                    arguments.get("timeout_ms", 150)
+                ),
+                "network_port_scan": lambda: tool_network_port_scan(
+                    arguments["target_ip"],
+                    arguments.get("ports", "21,22,23,25,53,80,110,139,443,445,3000,3306,5432,8000,8080,9090"),
+                    arguments.get("timeout_ms", 250)
+                ),
+                "network_interfaces_detailed": lambda: tool_network_interfaces_detailed(),
                 "process_list": lambda: tool_process_list(
                     arguments.get("sort_by", "cpu"),
                     arguments.get("limit", 20)
@@ -8411,10 +11369,31 @@ def handle_request(request: dict) -> dict:
                 "docker_images": lambda: tool_docker_images(),
                 "chat_export": lambda: tool_chat_export(
                     arguments["messages"],
-                    arguments.get("title")
+                    arguments.get("title"),
+                    arguments.get("expires_hours", 72)
+                ),
+                "chat_share": lambda: tool_chat_share(
+                    arguments["chat_id"],
+                    arguments.get("expires_hours", 72)
                 ),
                 "chat_list_shared": lambda: tool_chat_list_shared(),
                 "chat_get_shared": lambda: tool_chat_get_shared(arguments["chat_id"]),
+                # Local Media Viewing tool
+                "media_view": lambda: tool_media_view(
+                    arguments["file_path"],
+                    arguments.get("caption", "")
+                ),
+                # Cloudflare R2 tools
+                "r2_upload": lambda: tool_r2_upload(
+                    arguments["file_path"],
+                    arguments.get("prefix", "media")
+                ),
+                "r2_list": lambda: tool_r2_list(
+                    arguments.get("prefix", ""),
+                    arguments.get("limit", 20)
+                ),
+                "r2_delete": lambda: tool_r2_delete(arguments["key"]),
+                "r2_status": lambda: tool_r2_status(),
                 # Email tools
                 "email_send": lambda: tool_email_send(
                     arguments["to"],
@@ -8603,6 +11582,74 @@ def handle_request(request: dict) -> dict:
                     arguments.get("context"),
                     arguments.get("max_tasks", 10)
                 ),
+                # Kasa Smart Plugs
+                "kasa_set_plug_state": lambda: tool_kasa_set_plug_state(
+                    arguments["device_name"],
+                    arguments["turn_on"]
+                ),
+                "kasa_get_plugs_status": lambda: tool_kasa_get_plugs_status(),
+
+                # GitHub Monitor tools
+                "github_monitor_status": lambda: tool_github_monitor_status(),
+                "github_watch_repo": lambda: tool_github_watch_repo(arguments["repo_name"]),
+                "github_unwatch_repo": lambda: tool_github_unwatch_repo(arguments["repo_name"]),
+                "github_actions_status": lambda: tool_github_actions_status(arguments.get("repo_name", "dantecc10/ai-lab")),
+                # Automation, Nighttime & Visual Alert tools
+                "execute_sleep_routine": lambda: tool_execute_sleep_routine(arguments.get("shutdown_pc", False)),
+                "control_keyboard_backlight": lambda: tool_control_keyboard_backlight(arguments.get("level", "off")),
+                "audit_git_repositories": lambda: tool_audit_git_repositories(arguments.get("base_dir", "/media/darkseid/DATA/Repos")),
+                "trigger_visual_alert": lambda: tool_trigger_visual_alert(
+                    level=arguments.get("level", "normal"),
+                    duration=arguments.get("duration"),
+                    style=arguments.get("style"),
+                    colors=arguments.get("colors"),
+                    speed_ms=arguments.get("speed_ms"),
+                    include_lamp=arguments.get("include_lamp", False)
+                ),
+                # Recordatorios & Temporizadores
+                "reminder_add": lambda: tool_reminder_add(
+                    arguments["title"],
+                    arguments["due"],
+                    arguments.get("priority", "normal")
+                ),
+                "reminder_list": lambda: tool_reminder_list(),
+                "reminder_cancel": lambda: tool_reminder_cancel(arguments["reminder_id"]),
+                # Dev Ops & Control Remoto
+                "dev_system_telemetry": lambda: tool_dev_system_telemetry(),
+                "dev_service_control": lambda: tool_dev_service_control(
+                    arguments["service_name"],
+                    arguments.get("action", "status")
+                ),
+                "dev_process_monitor": lambda: tool_dev_process_monitor(arguments.get("count", 5)),
+                "dev_git_quick_action": lambda: tool_dev_git_quick_action(
+                    arguments["repo_path_or_name"],
+                    arguments.get("git_command", "status")
+                ),
+                # Media & Audio/Video Processing (Whisper + yt-dlp)
+                "media_download_url": lambda: tool_media_download_url(
+                    arguments["url"],
+                    arguments.get("media_type", "audio")
+                ),
+                "media_transcribe_audio": lambda: tool_media_transcribe_audio(arguments["url_or_path"]),
+                "media_summarize_content": lambda: tool_media_summarize_content(arguments["url_or_path"]),
+                # Voz Creativa & Estudio (Kokoro-82M)
+                "voice_creative_generate": lambda: tool_voice_creative_generate(
+                    arguments["text"],
+                    arguments.get("voice", "em_santa"),
+                    arguments.get("speed", 1.0)
+                ),
+                "voice_speak_notification": lambda: tool_voice_speak_notification(
+                    arguments["message"],
+                    arguments.get("voice", "bm_george"),
+                    arguments.get("visual_style", "synthwave")
+                ),
+                "voice_creative_list": lambda: tool_voice_creative_list(),
+                # Generación de Imagen (Diffusers / ComfyUI)
+                "image_ai_generate": lambda: tool_image_ai_generate(
+                    arguments["prompt"],
+                    arguments.get("aspect_ratio", "1:1")
+                ),
+
                 # Enhanced Communication tools
                 "notify_contextual": lambda: tool_notify_contextual(
                     arguments["task"],
@@ -8654,6 +11701,123 @@ def handle_request(request: dict) -> dict:
                     arguments["name"],
                     arguments.get("email"),
                     arguments.get("location")
+                ),
+                "audit_get_metrics": lambda: tool_audit_get_metrics(
+                    arguments.get("hours", 24)
+                ),
+                "audit_list_traces": lambda: tool_audit_list_traces(
+                    arguments.get("limit", 10),
+                    arguments.get("errors_only", False)
+                ),
+                "workflow_list": lambda: tool_workflow_list(),
+                "workflow_run": lambda: tool_workflow_run(
+                    arguments["name"],
+                    arguments.get("params")
+                ),
+                "workflow_status": lambda: tool_workflow_status(
+                    arguments["run_id"]
+                ),
+                "vector_search": lambda: tool_vector_search(
+                    arguments["query"],
+                    arguments.get("collection", "all"),
+                    arguments.get("limit", 5)
+                ),
+                "vector_index_path": lambda: tool_vector_index_path(
+                    arguments["path"],
+                    arguments.get("collection", "docs")
+                ),
+                "vector_remember": lambda: tool_vector_remember(
+                    arguments["text"],
+                    arguments.get("category", "preference")
+                ),
+                "vector_stats": lambda: tool_vector_stats(),
+                "browser_navigate": lambda: tool_browser_navigate(
+                    arguments["url"],
+                    arguments.get("wait_seconds", 3.0)
+                ),
+                "browser_extract_text": lambda: tool_browser_extract_text(
+                    arguments.get("selector", "body")
+                ),
+                "browser_click": lambda: tool_browser_click(
+                    arguments["selector"]
+                ),
+                "browser_type": lambda: tool_browser_type(
+                    arguments["selector"],
+                    arguments["text"],
+                    arguments.get("submit", False)
+                ),
+                "browser_screenshot": lambda: tool_browser_screenshot(
+                    arguments.get("name"),
+                    arguments.get("full_page", False)
+                ),
+                "browser_sync_brave_profile": lambda: tool_browser_sync_brave_profile(
+                    arguments.get("profile_name", "Default")
+                ),
+                "browser_status": lambda: tool_browser_status(),
+                "browser_extract_markdown": lambda: tool_browser_extract_markdown(),
+                "browser_print_pdf": lambda: tool_browser_print_pdf(
+                    arguments.get("filename")
+                ),
+                "browser_get_links": lambda: tool_browser_get_links(),
+                "browser_list_tabs": lambda: tool_browser_list_tabs(),
+                "browser_clear_session": lambda: tool_browser_clear_session(),
+                "voice_speak": lambda: tool_voice_speak(
+                    arguments["text"],
+                    arguments.get("interruptible", True),
+                    arguments.get("notify", True)
+                ),
+                "voice_listen": lambda: tool_voice_listen(
+                    arguments.get("timeout_seconds", 8.0),
+                    arguments.get("silence_ms", 800)
+                ),
+                "voice_status": lambda: tool_voice_status(),
+                "vision_analyze_image": lambda: tool_vision_analyze_image(
+                    arguments["image_path"],
+                    arguments.get("prompt", "Describe esta imagen en detalle y extrae los datos clave.")
+                ),
+                "vision_inspect_screen": lambda: tool_vision_inspect_screen(
+                    arguments.get("prompt", "Analiza la actividad y elementos presentes en la pantalla.")
+                ),
+                "vision_ocr": lambda: tool_vision_ocr(
+                    arguments["image_path"]
+                ),
+                "desktop_context_explain": lambda: tool_desktop_context_explain(
+                    arguments.get("target", "active_window"),
+                    arguments.get("user_intent", "¿Qué estoy haciendo y qué opciones tengo?"),
+                    arguments.get("include_rag", True)
+                ),
+                "desktop_list_monitors": lambda: tool_desktop_list_monitors(),
+                "desktop_list_windows": lambda: tool_desktop_list_windows(),
+                "desktop_capture_region": lambda: tool_desktop_capture_region(
+                    arguments.get("target", "active_window"),
+                    arguments.get("monitor_name"),
+                    arguments.get("window_id"),
+                    arguments.get("bbox")
+                ),
+                "audio_check_volume": lambda: tool_audio_check_volume(
+                    arguments.get("min_volume", 15),
+                    arguments.get("notify_if_inaudible", True)
+                ),
+                "audio_set_volume": lambda: tool_audio_set_volume(
+                    arguments["percent"],
+                    arguments.get("unmute", True)
+                ),
+                "voice_set_profile": lambda: tool_voice_set_profile(
+                    arguments["profile_id"],
+                    arguments.get("language"),
+                    arguments.get("speed"),
+                    arguments.get("pitch"),
+                    arguments.get("volume")
+                ),
+                "voice_list_profiles": lambda: tool_voice_list_profiles(),
+                "voice_conversational_turn": lambda: tool_voice_conversational_turn(
+                    arguments.get("prompt")
+                ),
+                "handy_status": lambda: tool_handy_status(),
+                "handy_toggle_transcription": lambda: tool_handy_toggle_transcription(),
+                "voice_transcribe_audio": lambda: tool_voice_transcribe_audio(
+                    arguments["file_path"],
+                    arguments.get("engine", "auto")
                 )
             }
 
@@ -8664,7 +11828,39 @@ def handle_request(request: dict) -> dict:
                     "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"}
                 }
 
+            # Security Guardrail evaluation
+            try:
+                from scripts.tools.security_guard import SecurityGuard
+                guard = SecurityGuard()
+                eval_res = guard.evaluate_execution(tool_name, arguments, user_confirmed=arguments.get("confirm", False))
+                if not eval_res["allowed"]:
+                    err_msg = eval_res["reason"]
+                    try:
+                        from scripts.tools.audit_logger import AuditLogger
+                        AuditLogger().record_trace(tool_name, arguments, 0.0, False, err_msg)
+                    except Exception:
+                        pass
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "result": {
+                            "content": [{"type": "text", "text": f"🛡️ Bloqueo de Seguridad: {err_msg}"}],
+                            "isError": True
+                        }
+                    }
+            except Exception:
+                pass
+
+            t_start = time.time()
             result = handlers[tool_name]()
+            duration_ms = (time.time() - t_start) * 1000.0
+
+            # Record audit trace
+            try:
+                from scripts.tools.audit_logger import AuditLogger
+                AuditLogger().record_trace(tool_name, arguments, duration_ms, True, "")
+            except Exception:
+                pass
 
             # Auto-notification hook
             try:
@@ -8683,11 +11879,17 @@ def handle_request(request: dict) -> dict:
                 }
             }
         except Exception as e:
+            err_str = str(e)
+            try:
+                from scripts.tools.audit_logger import AuditLogger
+                AuditLogger().record_trace(tool_name if 'tool_name' in locals() else "unknown", arguments if 'arguments' in locals() else {}, 0.0, False, err_str)
+            except Exception:
+                pass
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
                 "result": {
-                    "content": [{"type": "text", "text": f"Error: {str(e)}"}],
+                    "content": [{"type": "text", "text": f"Error: {err_str}"}],
                     "isError": True
                 }
             }

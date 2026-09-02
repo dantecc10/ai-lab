@@ -13,9 +13,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
 # Add venv site-packages
-venv_site = "/tmp/search-env/lib/python3.12/site-packages"
-if os.path.exists(venv_site) and venv_site not in sys.path:
-    sys.path.insert(0, venv_site)
+skills_venv = os.path.expanduser("~/scripting/gpu-tools/skills/.venv/lib/python3.12/site-packages")
+if os.path.exists(skills_venv) and skills_venv not in sys.path:
+    sys.path.insert(0, skills_venv)
 
 import qrcode
 

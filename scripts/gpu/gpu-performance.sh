@@ -12,6 +12,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 GPU_ADDR="0000:01:00.0"
+# shellcheck disable=SC2034
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 log()   { echo -e "${GREEN}[✓]${NC} $*"; }

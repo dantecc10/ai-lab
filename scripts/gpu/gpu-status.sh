@@ -12,9 +12,11 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 GPU_ADDR="0000:01:00.0"
+# shellcheck disable=SC2034
 JSON_MODE=false
 
 if [[ "${1:-}" == "--json" ]]; then
+    # shellcheck disable=SC2034
     JSON_MODE=true
 fi
 

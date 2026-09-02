@@ -12,12 +12,17 @@ import subprocess
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-# Add venv site-packages
-venv_site = "/tmp/search-env/lib/python3.12/site-packages"
-if os.path.exists(venv_site) and venv_site not in sys.path:
-    sys.path.insert(0, venv_site)
+import os
+import sys
+import json
+import tempfile
+import subprocess
+import configparser
+from pathlib import Path
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import parse_qs, urlparse
 
-# Also add the skills venv
+# Add venv site-packages
 skills_venv = os.path.expanduser("~/scripting/gpu-tools/skills/.venv/lib/python3.12/site-packages")
 if os.path.exists(skills_venv) and skills_venv not in sys.path:
     sys.path.insert(0, skills_venv)
@@ -28,14 +33,42 @@ PORT = 9093
 # Global model instance
 whisper_model = None
 
+DEFAULT_WHISPER_CONF = Path.home() / ".config" / "ai-lab" / "whisper.conf"
+REPO_WHISPER_CONF = Path(__file__).resolve().parent.parent.parent / "configs" / "whisper.conf"
+
+
+def get_whisper_config() -> dict:
+    conf = configparser.ConfigParser()
+    if DEFAULT_WHISPER_CONF.exists():
+        conf.read(DEFAULT_WHISPER_CONF)
+    elif REPO_WHISPER_CONF.exists():
+        conf.read(REPO_WHISPER_CONF)
+
+    return {
+        "model": conf.get("whisper", "model", fallback="small"),
+        "device": conf.get("whisper", "device", fallback="cpu"),
+        "compute_type": conf.get("whisper", "compute_type", fallback="int8"),
+        "cpu_threads": conf.getint("whisper", "cpu_threads", fallback=8),
+        "language": conf.get("whisper", "language", fallback="es"),
+        "beam_size": conf.getint("whisper", "beam_size", fallback=3),
+        "vad_filter": conf.getboolean("whisper", "vad_filter", fallback=True)
+    }
+
 
 def load_model():
     global whisper_model
     if whisper_model is None:
         from faster_whisper import WhisperModel
-        print("Loading Whisper model (base, CPU)...")
-        whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
-        print("Whisper model loaded!")
+        cfg = get_whisper_config()
+        model_name = cfg["model"]
+        print(f"Loading Whisper model ({model_name}, {cfg['device']} {cfg['compute_type']})...")
+        whisper_model = WhisperModel(
+            model_name,
+            device=cfg["device"],
+            compute_type=cfg["compute_type"],
+            cpu_threads=cfg["cpu_threads"]
+        )
+        print(f"Whisper model ({model_name}) loaded successfully!")
     return whisper_model
 
 
@@ -127,14 +160,44 @@ class WhisperHandler(BaseHTTPRequestHandler):
                     tmp.write(audio_data)
                     tmp_path = tmp.name
 
+                wav_16k_path = tmp_path + "_16k.wav"
                 try:
-                    # Transcribe
+                    # Convert to 16kHz mono WAV for optimal ASR performance
+                    subprocess.run(
+                        ["ffmpeg", "-y", "-i", tmp_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_16k_path],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False
+                    )
+                    audio_target = wav_16k_path if os.path.exists(wav_16k_path) and os.path.getsize(wav_16k_path) > 0 else tmp_path
+
+                    # 1. Intentar con Parakeet V3 (NVIDIA NeMo)
+                    try:
+                        from scripts.voice.parakeet_engine import ParakeetEngine
+                        parakeet = ParakeetEngine()
+                        if parakeet.available:
+                            p_res = parakeet.transcribe(audio_target)
+                            if p_res.get("success") and p_res.get("text"):
+                                self.send_json({
+                                    "text": p_res["text"].strip(),
+                                    "language": "es",
+                                    "duration": p_res.get("duration_sec", 0.0),
+                                    "latency_ms": p_res.get("latency_ms", 0),
+                                    "engine": "parakeet_tdt_v3"
+                                })
+                                return
+                    except Exception as pe:
+                        print(f"[Parakeet Attempt Error, falling back to Whisper]: {pe}")
+
+                    # 2. Fallback a faster-whisper
                     model = load_model()
+                    cfg = get_whisper_config()
+                    target_lang = language or cfg.get("language", "es")
                     segments, info = model.transcribe(
-                        tmp_path,
-                        language=language,
-                        beam_size=5,
-                        vad_filter=True
+                        audio_target,
+                        language=target_lang,
+                        beam_size=cfg.get("beam_size", 3),
+                        vad_filter=cfg.get("vad_filter", True)
                     )
 
                     text = " ".join([seg.text for seg in segments])
@@ -142,10 +205,14 @@ class WhisperHandler(BaseHTTPRequestHandler):
                     self.send_json({
                         "text": text.strip(),
                         "language": info.language,
-                        "duration": info.duration
+                        "duration": info.duration,
+                        "engine": "faster_whisper"
                     })
                 finally:
-                    os.unlink(tmp_path)
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+                    if os.path.exists(wav_16k_path):
+                        os.unlink(wav_16k_path)
 
             else:
                 self.send_json({"error": "Expected multipart/form-data"}, 400)
