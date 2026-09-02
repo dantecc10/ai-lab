@@ -1,0 +1,31 @@
+{
+  "name": "system_health_audit",
+  "description": "Auditoría integral de recursos del sistema, puertos, disco y seguridad",
+  "schedule": "0 0 * * *",
+  "steps": [
+    {
+      "id": "sys_info",
+      "tool": "get_system_info",
+      "args": {}
+    },
+    {
+      "id": "disk_info",
+      "tool": "disk_usage",
+      "args": {}
+    },
+    {
+      "id": "gpu_info",
+      "tool": "get_gpu_status",
+      "args": {}
+    },
+    {
+      "id": "notify",
+      "tool": "send_notification",
+      "args": {
+        "title": "🛡️ AI Lab — Auditoría de Salud",
+        "message": "Auditoría preventiva de hardware y recursos completada.",
+        "urgency": "low"
+      }
+    }
+  ]
+}

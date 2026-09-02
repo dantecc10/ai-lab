@@ -1,0 +1,35 @@
+{
+  "name": "daily_briefing",
+  "description": "Resumen matutino con clima local, telemetría de GPU NVIDIA y métricas del sistema",
+  "schedule": "0 8 * * *",
+  "steps": [
+    {
+      "id": "weather_step",
+      "tool": "weather",
+      "args": {
+        "city": "Puebla"
+      }
+    },
+    {
+      "id": "gpu_step",
+      "tool": "get_gpu_status",
+      "args": {}
+    },
+    {
+      "id": "audit_step",
+      "tool": "audit_get_metrics",
+      "args": {
+        "hours": 24
+      }
+    },
+    {
+      "id": "notify_step",
+      "tool": "send_notification",
+      "args": {
+        "title": "☀️ AI Lab — Resumen Matutino",
+        "message": "Telemetría y Clima actualizados con éxito. Consulta el estado en el chat.",
+        "urgency": "normal"
+      }
+    }
+  ]
+}
