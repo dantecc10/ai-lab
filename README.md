@@ -7,22 +7,24 @@ Sistema completo de IA local con GPU NVIDIA, modelos Gemma 4, asistente de voz, 
 | Componente | Detalle |
 |---|---|
 | GPU | NVIDIA RTX 5060 Laptop (8GB VRAM) |
-| RAM | 16GB |
+| RAM | 16GB (~14GiB usables) |
 | Driver | NVIDIA 580.173.02 (open kernel module) |
-| CUDA | 12.0 |
+| CUDA | 13.0 (Driver) / 12.0 (Toolkit) |
 | llama.cpp | v0.3.0-dev (b10688, commit c589f0ed1) |
 | SO | Pop!_OS 24.04 LTS |
-| Swap | ~42GB |
+| Swap | 42GB (14.9GB ZRAM + 27.2GB NVMe, swappiness=180) |
 
 ## Arquitectura
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Puerto 9090 — Modelo Principal (12B, GPU, NGL=30)         │
+│  Puerto 9090 — Modelo Principal Gemma 4 12B (GPU, NGL=30)   │
 │  Web UI: http://localhost:9090                              │
-│  CTX=32768, 138 tools MCP                                  │
-│  • Razonamiento complejo                                    │
-│  • Delega tools simples → Sub-agente                        │
+│  CTX=32768, 248 tools MCP (modulares)                      │
+│  • Razonamiento complejo, planning y auto-ejecución         │
+│  • Visualización local multimedia (media_view)              │
+│  • Delega tools simples → Sub-agente E4B                    │
+│  • Orquestador: mcp_server.py (18 domain modules)          │
 └─────────────────────────────────────────────────────────────┘
                            │
                            │ delegate_to_subagent
@@ -31,31 +33,39 @@ Sistema completo de IA local con GPU NVIDIA, modelos Gemma 4, asistente de voz, 
 │  Puerto 9091 — Sub-agente E4B (CPU, NGL=0)                 │
 │  Web UI: http://localhost:9091                              │
 │  CTX=8192                                                   │
-│  • Spotify, Kasa, system info                               │
+│  • Spotify, Kasa, system info, OSINT                        │
 └─────────────────────────────────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Puerto 9092 — Open WebUI                                  │
 │  http://localhost:9092                                      │
-│  Interface tipo ChatGPT                                     │
+│  Interface tipo ChatGPT con chat y extensiones              │
 └─────────────────────────────────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Puerto 9093 — Whisper STT                                 │
 │  http://localhost:9093                                      │
-│  Speech-to-Text (Voice Input)                               │
+│  Speech-to-Text en tiempo real para asistente de voz        │
 └─────────────────────────────────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Puerto 9095 — ChatShare Local                             │
+│  Puerto 9095 — ChatShare & Servidor Multimedia Local        │
 │  http://localhost:9095                                      │
-│  • Gestión de chats (SQLite + Alembic)                      │
-│  • Tokens de acceso con expiración                          │
-│  • Sync automático con VPS                                  │
-│  • MCP tools para la IA                                     │
+│  • Streaming multimedia local (imágenes, audio, video)      │
+│  • Gestión de chats locales (SQLite + Alembic)              │
+│  • Sync automático con VPS (ai.castelancarpinteyro.com)     │
+│  • Generación de tokens seguros y códigos QR                │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           │ r2_upload / chat_export
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Cloudflare R2 Object Storage (CDN Global, $0 Egress)       │
+│  https://pub-1e0feaec3fa0410fa72dfccb31f05917.r2.dev       │
+│  • Distribución CDN de multimedia sin saturar el VPS        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -68,6 +78,7 @@ Sistema completo de IA local con GPU NVIDIA, modelos Gemma 4, asistente de voz, 
 | Open WebUI | 9092 | Interface web | Docker |
 | Whisper STT | 9093 | Speech-to-Text | `whisper-server.service` |
 | ChatShare | 9095 | Compartir chats | `chatmanager.service` |
+| Telegram Bot | - | Bot Asistente IA (Voz, Visión, Tools) | `telegram-bot.service` |
 
 ### Comandos de Gestión
 
@@ -77,6 +88,9 @@ Sistema completo de IA local con GPU NVIDIA, modelos Gemma 4, asistente de voz, 
 
 # Sub-agente E4B (CPU)
 ~/scripting/gpu-tools/e4b-ctl.sh start|stop|restart|status|logs
+
+# Telegram Bot
+~/scripting/gpu-tools/telegram-ctl.sh start|stop|restart|status|logs|set-token|allow-user
 
 # ChatShare
 systemctl --user start|stop|restart|status chatmanager.service
@@ -99,19 +113,65 @@ cat /sys/module/nvidia/parameters/NVreg_PreserveVideoMemoryAllocations
 
 Ubicación: `~/llama.cpp/ai-models/`
 
-## Tools MCP (94 total)
+## Tools MCP (248 herramientas modulares)
 
-### Smart Home (2)
-- `kasa_set_plug_state` — Encender/apagar enchufes
-- `kasa_get_plugs_status` — Ver estado de enchufes
+### Local Media Viewing (1)
+- `media_view` — Visualizar imágenes, audios y videos locales en el chat web (:9090) con Base64 Data-URI / streaming sin requerir internet.
 
-### Sistema (14)
+### Cloudflare R2 Storage (4)
+- `r2_upload` — Subir archivo local a Cloudflare R2 CDN ($0 costo de egress).
+- `r2_list` — Listar archivos almacenados en el bucket de R2.
+- `r2_delete` — Eliminar archivo de Cloudflare R2.
+- `r2_status` — Diagnóstico y verificación de conexión con Cloudflare R2.
+
+### ChatShare & Public Sharing (4)
+- `chat_export` — Guardar y exportar conversación completa (con multimedia, reasoning y planning) a `ai.castelancarpinteyro.com` con código QR visual para escaneo móvil.
+- `chat_share` — Generar enlace público con token de expiración configurable.
+- `chat_list_shared` — Listar chats registrados.
+- `chat_get_shared` — Obtener historial completo de un chat por su ID.
+
+### Recordatorios & Temporizadores Omnicanal (3)
+- `reminder_add` — Programa recordatorios y temporizadores con lenguaje natural y despacho multicanal (Telegram, escritorio, aviso visual).
+- `reminder_list` — Lista recordatorios pendientes con tiempo restante y fecha exacta.
+- `reminder_cancel` — Cancela o elimina un recordatorio por ID.
+
+### Dev Ops & Control Remoto del Sistema (4)
+- `dev_system_telemetry` — Dashboard en tiempo real de GPU NVIDIA (VRAM, temp, watts), CPU, RAM, Swap, Disco y servicios IA.
+- `dev_service_control` — Gestión remota de servicios systemd (`gemma4-server`, `e4b-server`, `whisper-server`, `telegram-bot`, `git-sentinel`).
+- `dev_process_monitor` — Monitoreo de procesos principales en consumo de CPU y memoria RAM.
+- `dev_git_quick_action` — Acciones git rápidas (`status`, `diff`, `log`, `branch`, `pull`) en el acervo de repositorios.
+
+### Procesamiento de Audio & Video con Whisper y yt-dlp (3)
+- `media_download_url` — Descarga audio (MP3) o video (MP4) de YouTube, X, TikTok, Reddit o Podcasts con `yt-dlp`.
+- `media_transcribe_audio` — Transcripción local automática de habla con Whisper STT (:9093).
+- `media_summarize_content` — Resumen inteligente estructurado con Gemma 4 para videos de YouTube y audios largos.
+
+### Generación de Voz Creativa de Alta Fidelidad (Kokoro-82M) (3)
+- `voice_creative_generate` — Síntesis de voz expresiva y de estudio en CPU (Voz principal: `em_santa` en español).
+- `voice_speak_notification` — Emite avisos hablados por los altavoces de la PC (`bm_george` en inglés británico o `em_santa` en español) con animación de teclado ASUS.
+- `voice_creative_list` — Catálogo de voces masculinas, femeninas y narradores en español e inglés.
+
+### Generación de Imagen por Difusión Local (1)
+- `image_ai_generate` — Generación de imágenes artísticas, realistas y conceptuales con IA en CPU / Shared Memory y ComfyUI API.
+
+### Smart Home, Iluminación & Automatizaciones (6)
+- `execute_sleep_routine` — Rutina de dormir inteligente: apaga Lux, asegura carga en ElektroDante y apaga teclado (o apaga el equipo con `shutdown 0`).
+- `trigger_visual_alert` — Avisos visuales y coreografías de color en teclado ASUS y lámpara Lux (estilos temáticos, multi-color libre, presets y retorno a Cian).
+- `control_keyboard_backlight` — Control de brillo del teclado ASUS ROG/TUF (`off`, `low`, `med`, `high`).
+- `audit_git_repositories` — Auditoría masiva del acervo de código en `/media/darkseid/DATA/Repos` (uncommitted, unpushed, untracked).
+- `kasa_set_plug_state` — Encender/apagar enchufes Kasa (`Lux`, `ElektroDante`, `todos`).
+- `kasa_get_plugs_status` — Ver estado actual de todos los enchufes Kasa.
+
+#### Sistema y Manipulación Quirúrgica de Archivos (17)
 - `system_list_directory` — Navegar directorios
 - `system_file_info` — Metadata de archivos
 - `system_search_files` — Buscar archivos
-- `system_read_file` — Leer archivos
-- `system_write_file` — Escribir archivos
-- `system_run_command` — Ejecutar comandos
+- `system_read_file` — Leer archivos con soporte para rangos de líneas (`start_line`, `end_line`, `max_lines`)
+- `system_write_file` — Crear archivos nuevos o sobreescritura total
+- `system_append_to_file` — Anexión instantánea al final sin releer ni sobreescribir el archivo previo (100x más eficiente)
+- `system_replace_file_content` — Reemplazo quirúrgico exacto de bloques de texto sin alterar el resto del archivo
+- `system_compact_context` — Compacta historiales conversacionales y contextos extensos al 15-20% preservando decisiones clave
+- `system_run_command` — Ejecutar comandos (con destello dinámico en teclado)
 - `system_get_system_info` — Info del sistema
 - `system_get_gpu_status` — Estado GPU
 - `system_screenshot` — Capturar pantalla
@@ -122,18 +182,17 @@ Ubicación: `~/llama.cpp/ai-models/`
 - `system_notes` — Notas rápidas
 
 ### Navegador (3)
-- `system_web_search` — Buscar en DuckDuckGo
+- `system_web_search` — Búsqueda web (DuckDuckGo libre)
 - `system_open_url` — Abrir URL
-- `system_run_python_script` — Ejecutar Python
+- `system_run_python` — Ejecutar script Python
 
 ### Multimedia (2)
-- `system_media_control` — Play/pause/volume
-- `system_send_notification` — Notificaciones
+- `system_volume` — Control de volumen
+- `system_media_control` — Play/pause/next/prev
 
 ### Spotify (12)
-- `system_spotify_search` — Buscar
-- `system_spotify_now` — Ver qué suena
-- `system_spotify_play` — Reanudar
+- `system_spotify_status` — Estado actual
+- `system_spotify_play` — Reproducir
 - `system_spotify_pause` — Pausar
 - `system_spotify_next` — Siguiente
 - `system_spotify_previous` — Anterior
@@ -144,26 +203,16 @@ Ubicación: `~/llama.cpp/ai-models/`
 - `system_spotify_play_artist` — Reproducir artista
 - `system_spotify_play_playlist` — Reproducir playlist
 
-### Memoria (5)
-- `memory_save` — Guardar en memoria
-- `memory_search` — Buscar en memoria
-- `memory_context` — Obtener contexto
-- `memory_list` — Listar entradas
-- `memory_delete` — Eliminar entrada
+### Memoria Inteligente y Contexto Persistente (6)
+- `memory_save` — Guardar en memoria aplicando directiva de fragmentación atómica
+- `memory_search` — Búsqueda tokenizada multitérmino con ranking de relevancia y entrega de contenido íntegro sin truncado
+- `memory_get` — Recuperar entrada de memoria completa por su ID numérico
+- `memory_context` — Obtener contexto de entradas recientes
+- `memory_list` — Listar catálogo de entradas registradas
+- `memory_delete` — Eliminar entrada por ID
 
 ### Delegación (1)
-- `delegate_to_subagent` — Delegar al sub-agente
-
-### ChatShare (9)
-- `chat_create` — Crear nuevo chat
-- `chat_list` — Listar chats
-- `chat_get` — Obtener chat con mensajes
-- `chat_edit` — Editar chat (crea versión)
-- `chat_delete` — Soft delete
-- `chat_versions` — Ver historial de versiones
-- `chat_branch` — Crear rama
-- `chat_share` — Compartir chat (genera token)
-- `token_revoke` — Revocar token de acceso
+- `delegate_to_subagent` — Delegar al sub-agente E4B
 
 ### GitHub (16)
 - `gh_repos_list`, `gh_repo_info`, `gh_repo_create`
@@ -186,9 +235,6 @@ Ubicación: `~/llama.cpp/ai-models/`
 ### Docker (3)
 - `docker_ps`, `docker_logs`, `docker_images`
 
-### Chat (3)
-- `chat_export`, `chat_list_shared`, `chat_get_shared`
-
 ### System (4)
 - `system_shutdown` — shutdown/reboot/suspend/hibernate
 - `file_compress`, `file_extract`, `file_permissions`
@@ -208,12 +254,40 @@ Ubicación: `~/llama.cpp/ai-models/`
 ### Monitoring (4)
 - `monitor_realtime`, `monitor_top_processes`, `disk_usage`, `disk_io`
 
-### Email (5)
-- `email_send` — Enviar correos vía SMTP
-- `email_configure` — Configurar credenciales SMTP
+### Email (11)
+- `email_send` — Enviar correos vía SMTP (smtplib directo)
+- `email_list` — Listar correos de una carpeta con paginación
+- `email_read` — Leer un correo completo por ID
+- `email_search` — Buscar correos por asunto, remitente o contenido
+- `email_folders` — Listar carpetas disponibles en el servidor
+- `email_mark_read` — Marcar un correo como leído
+- `email_delete` — Eliminar un correo por ID
+- `email_configure` — Configurar credenciales SMTP/IMAP
 - `email_test` — Probar configuración SMTP
-- `email_discover_settings` — Auto-descubrir SMTP (MX records + probing)
-- `email_setup_wizard` — Wizard completo: descubre + configura + guarda + prueba
+- `email_discover_settings` — Auto-descubrir SMTP/IMAP por dominio
+- `email_setup_wizard` — Wizard completo: descubre + configura + prueba
+
+### Fútbol y Deportes (20)
+- `football_search_matches` — Buscar partidos por fecha, liga o equipo
+- `football_get_match` — Detalle completo de un partido
+- `football_live_scores` — Marcadores en vivo en tiempo real
+- `football_get_match_h2h` — Historial de enfrentamientos directos
+- `football_get_match_lineups` — Alineaciones titulares y suplentes
+- `football_get_match_shotmap` — Mapa de tiros de un partido
+- `football_get_match_incidents` — Eventos del partido (goles, tarjetas)
+- `football_search_teams` — Buscar equipos por nombre
+- `football_get_team` — Info completa de un equipo
+- `football_get_team_fixtures` — Calendario de próximos partidos
+- `football_search_players` — Buscar jugadores por nombre
+- `football_get_player` — Info completa de un jugador
+- `football_get_player_stats` — Estadísticas detalladas
+- `football_get_standings` — Clasificación de una liga
+- `football_list_leagues` — Catálogo de ligas disponibles
+- `football_list_seasons` — Temporadas disponibles por liga
+- `football_compare_odds` — Comparar cuotas de casas de apuestas
+- `football_get_predictions` — Pronósticos y predicciones de IA
+- `football_list_venues` — Estadios disponibles
+- `football_list_referees` — Árbitros registrados
 
 ### SSH (8)
 - `ssh_connect` — Ejecutar comandos remotos
@@ -273,6 +347,54 @@ Ubicación: `~/llama.cpp/ai-models/`
 - `osint_ip` — Inteligencia de IP (geolocalización, ASN, reverse DNS)
 - `osint_person` — Buscar persona por nombre en múltiples plataformas
 
+### Auditoría y Trazabilidad (2)
+- `audit_get_metrics` — Consulta métricas agregadas de rendimiento de tools, tasa de éxito, latencia y uso de GPU/VRAM.
+- `audit_list_traces` — Lista las últimas trazas de ejecución registradas para trazabilidad y auto-diagnóstico.
+
+### Flujos de Trabajo Declarativos (3)
+- `workflow_list` — Listar pipelines DAG disponibles en configs/workflows/.
+- `workflow_run` — Ejecutar pipeline multi-paso declarativo por nombre (ej. daily_briefing).
+- `workflow_status` — Consultar estado y resultados por ID de ejecución.
+
+### Memoria Vectorial y RAG Semántico (4)
+- `vector_search` — Búsqueda semántica por similitud coseno sobre documentación, notas y código local.
+- `vector_index_path` — Indexar carpetas o archivos en la base vectorial SQLite.
+- `vector_remember` — Guardar hechos o preferencias del usuario en memoria episódica vectorial.
+- `vector_stats` — Estadísticas de colecciones, fragmentos indexados y uso de almacenamiento.
+
+### Navegación Web Headless & Sincronización Brave (12)
+- `browser_navigate` — Navegar a URLs interactivas con Brave Browser headless.
+- `browser_extract_text` — Extraer texto de elementos o selector CSS.
+- `browser_extract_markdown` — Modo lectura: extraer contenido principal convertido a Markdown limpio.
+- `browser_click` — Hacer clic en botones o enlaces interactivos.
+- `browser_type` — Llenar formularios o escribir en inputs web.
+- `browser_screenshot` — Captura de pantalla guardada en directorio multimedia lista para media_view.
+- `browser_print_pdf` — Imprimir y exportar página web a documento PDF de alta fidelidad.
+- `browser_get_links` — Extraer lista completa de hipervínculos de la página.
+- `browser_list_tabs` — Listar pestañas abiertas en el navegador headless.
+- `browser_sync_brave_profile` — Sincronizar cookies y sesiones autenticadas de Brave personal.
+- `browser_clear_session` — Limpiar cookies y caché (modo incógnito / anónimo).
+- `browser_status` — Consulta de URL activa, título y puerto CDP.
+
+### Asistencia Visual de Escritorio Multi-Monitor (4)
+- `desktop_context_explain` — Análisis contextual omnipotente: qué está haciendo el usuario en pantalla, botones/opciones y sugerencias paso a paso.
+- `desktop_list_monitors` — Listar pantallas y monitores físicos conectados (xrandr), resoluciones y geometrías.
+- `desktop_list_windows` — Listar ventanas abiertas en el escritorio, aplicaciones y estado de foco.
+- `desktop_capture_region` — Captura de ventana activa, monitor concreto o región rectangular.
+
+### Voz Bidireccional Full-Duplex, Diagnóstico & Perfiles (11)
+- `voice_speak` — Sintetizar voz en tiempo real con soporte de interrupción (Barge-In).
+- `voice_listen` — Escuchar micrófono con detección de actividad de voz (VAD) y auto-corte de silencio.
+- `voice_status` — Estado de TTS, Whisper STT, micrófono y Barge-In.
+- `voice_set_profile` — Personalizar perfil de voz, acento, idioma, velocidad y tono.
+- `voice_list_profiles` — Listar todos los perfiles de voz, idiomas y acentos disponibles.
+- `voice_conversational_turn` — Ejecutar ciclo conversacional continuo por voz con LLM local y Barge-In.
+- `audio_check_volume` — Diagnosticar volumen y silencio con alertas si no es audible.
+- `audio_set_volume` — Ajustar volumen y desmutear bocinas.
+- `vision_analyze_image` — Análisis visual multimodal sobre imágenes locales o capturas.
+- `vision_inspect_screen` — Captura de pantalla del escritorio en vivo y análisis visual.
+- `vision_ocr` — Extracción óptica de texto (OCR) con Tesseract local.
+
 ## ChatShare
 
 Sistema de compartir chats con gestión local y sincronización con VPS.
@@ -299,7 +421,8 @@ PC Local (SQLite)  ──sync──▶  VPS (API mínima)
 | `/api/v1/chats/{id}/branches` | POST | Crear rama |
 | `/api/v1/chats/{id}/share` | POST | Compartir (genera token) |
 | `/api/v1/tokens/{id}/revoke` | POST | Revocar token |
-| `/view/{id}?token={token}` | GET | Ver chat compartido |
+| `/api/v1/media?path=...` | GET | Servir multimedia local (streaming CORS) |
+| `/view/{id}?token={token}` | GET | Visor web público interactivo |
 
 ### Database
 
@@ -316,6 +439,58 @@ Tablas:
 
 - **Token Expiration**: Verifica tokens expirados cada 5 minutos
 - **Sync**: Sincroniza chats con VPS cada 30 segundos
+
+---
+
+## Almacenamiento Cloudflare R2 (CDN Multimedia)
+
+Cloudflare R2 proporciona almacenamiento de objetos compatible con S3 con **$0 costo de transferencia (egress libre)**, utilizado para servir capturas, audios de Piper TTS, grabaciones de voz de Whisper y videos sin recargar el disco del servidor VPS.
+
+### Configuración (`~/.config/ai-lab/r2.env`)
+
+```ini
+R2_ACCOUNT_ID="1abad53de70fc4c8729b148f45cfc26c"
+R2_ACCESS_KEY_ID="tu_access_key_id"
+R2_SECRET_ACCESS_KEY="tu_secret_access_key"
+R2_BUCKET_NAME="ai-lab"
+R2_PUBLIC_DOMAIN="https://pub-1e0feaec3fa0410fa72dfccb31f05917.r2.dev"
+```
+
+### CLI `r2`
+
+```bash
+# Configurar credenciales
+r2 configure --account-id ... --access-key ... --secret-key ... --bucket ai-lab
+
+# Verificar estado y conexión S3
+r2 status
+
+# Subir archivo multimedia
+r2 upload ~/screenshot.png --prefix screenshots
+
+# Listar archivos
+r2 list
+
+# Eliminar archivo
+r2 delete screenshots/screenshot.png
+```
+
+---
+
+## Visualización Multimedia en el Chat
+
+El sistema soporta dos modos de renderizado multimedia:
+
+1. **Local en el Chat (:9090 / Open WebUI)** vía `media_view`:
+   - Utiliza Data-URIs Base64 y streaming local desde el puerto `9095`.
+   - Bypassea restricciones de COEP (`Cross-Origin-Embedder-Policy: require-corp`) en la interfaz web de `llama-server`.
+   - No requiere conexión a internet ni subida a la nube.
+2. **Público en la Web (`ai.castelancarpinteyro.com`)** vía `chat_export`:
+   - Sube automáticamente las rutas locales a Cloudflare R2 CDN.
+   - Genera enlace público de 72h con código QR interactivo para escaneo desde dispositivos móviles.
+   - Renderiza reproductores nativos HTML5 de audio, video y visor Lightbox con zoom para imágenes.
+
+---
 
 ## Estructura del Repositorio
 
@@ -354,9 +529,10 @@ ai-lab/
 │       └── nginx-plesk.conf
 ├── docs/                       # Documentación
 │   ├── README.md              # Documentación principal
-│   ├── problems/              # Problemas encontrados
-│   ├── solutions/             # Soluciones implementadas
-│   └── changelog/             # Historial de cambios
+│   ├── roadmap/               # Plan de evolución y fases (ROADMAP.md)
+│   ├── problems/              # Problemas encontrados (PROBLEMS.md)
+│   ├── solutions/             # Soluciones implementadas (SOLUTIONS.md)
+│   └── changelog/             # Historial de cambios (CHANGELOG.md)
 ├── models/                     # Modelos (no en git)
 ├── .gitignore
 └── README.md                   # Este archivo
@@ -501,72 +677,83 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Ajustes de Rendimiento y Suspensión
+
+### 1. Suspensión S0ix (Modern Standby) y GPU Colgada en AMD/ASUS
+En portátiles AMD con RTX serie 40/50, S0ix causa que la GPU quede atrapada en `D3cold` tras suspender. Se resuelve configurando en `/etc/modprobe.d/`:
+```ini
+# /etc/modprobe.d/nvidia-graphics-drivers-sleep.conf y system76-power.conf
+options nvidia NVreg_EnableS0ixPowerManagement=0
+options nvidia NVreg_PreserveVideoMemoryAllocations=1
+options nvidia NVreg_TemporaryFilePath=/var/tmp
+```
+
+### 2. Despertar PCIe y Rendimiento GPU
+```bash
+# Activar máximo rendimiento (PCI rescan, persistence mode, d3cold off)
+~/ai-lab/scripts/gpu/gpu-performance.sh --on
+
+# Ver estado actual del bus y P-State
+~/ai-lab/scripts/gpu/gpu-performance.sh --status
+```
+
+### 3. Persistencia de Servicios de Usuario (Linger)
+Para evitar que `systemd --user` termine los procesos de IA al cerrar sesión o suspender:
+```bash
+sudo loginctl enable-linger $USER
+```
+
+---
+
 ## Solución de Problemas
 
-### GPU en D3cold
+### GPU en D3cold tras reposo
 ```bash
-# Verificar estado
-cat /sys/module/nvidia_drm/parameters/d3cold_disable
-
-# Deshabilitar D3cold
-echo 1 | sudo tee /sys/module/nvidia_drm/parameters/d3cold_disable
-
-# Forzar modo de rendimiento
-sudo nvidia-smi -pm 1
-sudo nvidia-smi -pl 55
+# Ejecutar script de despertar y re-escaneo PCI
+~/ai-lab/scripts/gpu/gpu-performance.sh --on
 ```
 
-### CUDA OOM con CTX grande
+### CUDA OOM con CTX grande (32K)
 ```bash
-# Reducir NGL (en gemma4-server.conf)
-NGL=30  # En vez de 40
-
-# Usar modo swap
-USE_SWAP=true
-SWAP_AGGRESSIVE=false
+# Asegurar NGL=30 en ~/.config/gemma4-server.conf (libera ~2GB VRAM)
+NGL=30
+~/ai-lab/scripts/llama/gemma4-ctl.sh restart
 ```
 
-### Servicio systemd no inicia
+### Servicio systemd no inicia o se detiene
 ```bash
-# Verificar logs
+# Habilitar linger y revisar logs
+sudo loginctl enable-linger $USER
 journalctl --user -u gemma4-server.service -f
-
-# Verificar dependencias
-systemctl --user status gemma4-server.service
-
-# Recargar daemon
-systemctl --user daemon-reload
 ```
 
 ### ChatShare no conecta con VPS
 ```bash
-# Verificar configuración
-cat ~/chatshare/.env
-
-# Verificar logs
-journalctl --user -u chatmanager.service -f
-
-# Probar conexión
+# Probar endpoint y revisar logs del demonio
 curl -s https://ai.castelancarpinteyro.com/health
+journalctl --user -u chatmanager.service -f
 ```
+
+---
 
 ## Changelog
 
-### v1.1.0 (2026-08-30)
-- ChatShare: sistema de compartir chats con tokens
-- Local-first: SQLite + Alembic para gestión de chats
-- Workers automáticos (expiración de tokens, sync con VPS)
-- 9 herramientas MCP adicionales (total: 94)
-- Puerto 9095 para ChatShare
+### v1.8.0 (2026-09-02)
+- **Email Fix**: Reemplazado `msmtp` (subprocess timeout) con `smtplib.SMTP_SSL()` directo para envío de correos más confiable.
+- **Sports API (20 tools)**: Integración completa de API BSD para fútbol: partidos en vivo, clasificaciones, pronósticos, cuotas, jugadores y más.
+- **Email IMAP (6 tools)**: Lectura de correos vía IMAP — `email_list`, `email_read`, `email_search`, `email_folders`, `email_mark_read`, `email_delete`.
+- **System Prompt Actualizado**: Incluye 248 herramientas con guías de uso (API vs web search), secciones de fútbol y email, políticas de seguridad actualizadas.
+- Total tools: **222 → 248** (+20 fútbol, +6 email IMAP)
 
-### v1.0.0 (2026-08-29)
-- Sistema base con GPU NVIDIA RTX 5060
-- llama.cpp v0.3.0-dev
-- Gemma 4 12B (principal) + E4B (sub-agente)
-- 85 tools MCP
-- Sistema de memoria persistente (SQLite)
-- Voice input con Whisper
-- Open WebUI en puerto 9092
+### v1.7.0 (2026-09-02)
+- **Unified Audit System**: SQLite WAL mode, 7 herramientas de auditoría, dashboard web con Chart.js en `:9095/audit`.
+- Total tools: **215 → 222**
+
+### v1.6.0 (2026-09-02)
+- **MCP Modular Architecture**: 18 domain modules + 6 shared utilities reemplazan monolito de 11,926 líneas.
+- **Security Hardening**: SSRF blocking, path traversal prevention, command injection fixes.
+- **12 crash fixes** across modules.
+- Total tools: **215**
 
 ## Licencia
 
