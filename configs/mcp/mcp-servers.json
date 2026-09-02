@@ -6,7 +6,7 @@
     },
     "system": {
       "command": "/home/darkseid/scripting/gpu-tools/skills/.venv/bin/python3",
-      "args": ["/home/darkseid/scripting/gpu-tools/skills/system_mcp_server.py"]
+      "args": ["/home/darkseid/scripting/gpu-tools/skills/mcp_server.py"]
     }
   }
 }

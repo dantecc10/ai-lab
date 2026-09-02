@@ -5,7 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /home/darkseid/ai-lab/scripts/tools/chat_share_server.py
+WorkingDirectory=/home/darkseid/chatshare
+ExecStart=/home/darkseid/chatshare/.venv/bin/python -m uvicorn src.main:app --host 0.0.0.0 --port 9095
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

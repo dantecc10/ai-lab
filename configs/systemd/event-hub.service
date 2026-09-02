@@ -1,0 +1,14 @@
+[Unit]
+Description=AI Lab — Reactive Event Hub and Monitoring Daemon
+After=network.target gemma4-server.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/ai-lab/scripts/automation/event_hub.py
+Restart=always
+RestartSec=10
+Environment="PYTHONUNBUFFERED=1"
+WorkingDirectory=%h/ai-lab
+
+[Install]
+WantedBy=default.target

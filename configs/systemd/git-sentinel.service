@@ -1,0 +1,10 @@
+[Unit]
+Description=AI Lab Git Sentinel - Acervo Tecnico Watcher (/media/darkseid/DATA/Repos)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/darkseid/ai-lab
+ExecStart=/home/darkseid/scripting/gpu-tools/skills/.venv/bin/python /home/darkseid/ai-lab/scripts/tools/git_sentinel_daemon.py
+StandardOutput=journal
+StandardError=journal

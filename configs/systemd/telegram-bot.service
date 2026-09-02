@@ -1,0 +1,17 @@
+[Unit]
+Description=AI Lab Telegram Bot Service
+After=network.target gemma4-server.service whisper-server.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/darkseid/ai-lab
+ExecStart=/home/darkseid/scripting/gpu-tools/skills/.venv/bin/python -m scripts.telegram.bot
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment="PYTHONUNBUFFERED=1"
+Environment="PATH=/home/darkseid/scripting/gpu-tools/skills/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+
+[Install]
+WantedBy=default.target

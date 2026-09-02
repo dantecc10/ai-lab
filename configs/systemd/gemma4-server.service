@@ -39,8 +39,9 @@ ExecStart=/bin/bash -c '\
     --top-k 64 \
     --log-disable \
     ${EXTRA_ARGS:-}'
-Restart=on-failure
-RestartSec=5
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
 StandardOutput=journal
 StandardError=journal
 
